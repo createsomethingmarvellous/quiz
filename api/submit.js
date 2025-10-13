@@ -1,5 +1,4 @@
 import { sql } from '@vercel/postgres';
-// Corrected line below
 import questions from '../questions.json' with { type: 'json' };
 
 export default async function handler(req, res) {
@@ -8,19 +7,22 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { teamName, answers } = req.body;
+        const { teamName, answers, cheated } = req.body;
 
-        if (!teamName || !answers) {
-            return res.status(400).json({ message: 'Missing team name or answers' });
+        if (!teamName) {
+            return res.status(400).json({ message: 'Missing team name' });
         }
 
         let score = 0;
-        questions.forEach((q, index) => {
-            // Ensure answers are correctly compared
-            if (parseInt(answers[index], 10) === q.answer) {
-                score++;
-            }
-        });
+        if (cheated) {
+            score = -999; // Set a penalty score for disqualification
+        } else {
+            questions.forEach((q, index) => {
+                if (answers[index] === q.answer) {
+                    score++;
+                }
+            });
+        }
 
         await sql`
             CREATE TABLE IF NOT EXISTS Scores (

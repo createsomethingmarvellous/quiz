@@ -15,6 +15,7 @@
                 <input type="text" id="team-name-input" placeholder="Team Name" required>
                 <button type="submit">Join Quiz</button>
             </form>
+            <a href="/admin.html" id="admin-link">Admin Panel</a>
         </div>
 
         <!-- Waiting Room -->
@@ -25,9 +26,15 @@
 
         <!-- Quiz Container -->
         <div id="quiz-container" class="hidden">
+            <div id="timer">02:00</div>
             <h1>Quiz</h1>
             <form id="quiz-form"></form>
             <button id="submit-btn" class="hidden">Submit Answers</button>
+        </div>
+
+        <!-- Disqualified Message -->
+        <div id="disqualified-container" class="hidden">
+            <h1>You have been disqualified for changing tabs.</h1>
         </div>
 
         <!-- Leaderboard Container -->

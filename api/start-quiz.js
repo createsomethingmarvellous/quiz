@@ -2,21 +2,15 @@ import { sql } from '@vercel/postgres';
 
 export default async function handler(req, res) {
     try {
-        await sql`
-            CREATE TABLE IF NOT EXISTS QuizStatus (
-                id INT PRIMARY KEY,
-                started BOOLEAN NOT NULL
-            );
-        `;
-        
-        await sql`
-            INSERT INTO QuizStatus (id, started) VALUES (1, TRUE)
-            ON CONFLICT (id) DO UPDATE SET started = TRUE;
-        `;
-        
-        return res.status(200).send('Quiz started successfully!');
+        const { rows } = await sql`SELECT started, duration_seconds FROM QuizStatus WHERE id = 1;`;
+        const quizStarted = rows.length > 0 && rows[0].started;
+        const duration = rows.length > 0 ? rows[0].duration_seconds : 120;
+        return res.status(200).json({ quizStarted, duration });
     } catch (error) {
-        console.error('Database Error starting quiz:', error);
-        return res.status(500).json({ message: 'Failed to start quiz' });
+        if (error.message.includes('does not exist')) {
+            return res.status(200).json({ quizStarted: false });
+        }
+        console.error('Database Error checking quiz status:', error);
+        return res.status(500).json({ message: 'Internal Server Error' });
     }
 }
