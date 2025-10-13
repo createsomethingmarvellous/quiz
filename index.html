@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Quiz</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Team Name Entry -->
+        <div id="team-name-container">
+            <h1>Enter Your Team Name</h1>
+            <form id="team-name-form">
+                <input type="text" id="team-name-input" placeholder="Team Name" required>
+                <button type="submit">Join Quiz</button>
+            </form>
+        </div>
+
+        <!-- Waiting Room -->
+        <div id="waiting-room" class="hidden">
+            <h1>Waiting for the quiz to start...</h1>
+            <p>You will be automatically redirected when the admin starts the quiz.</p>
+        </div>
+
+        <!-- Quiz Container -->
+        <div id="quiz-container" class="hidden">
+            <h1>Quiz</h1>
+            <form id="quiz-form"></form>
+            <button id="submit-btn" class="hidden">Submit Answers</button>
+        </div>
+
+        <!-- Leaderboard Container -->
+        <div id="leaderboard-container" class="hidden">
+            <h1>Leaderboard</h1>
+            <table id="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Team Name</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
