@@ -1,16 +1,34 @@
 import { sql } from '@vercel/postgres';
 
 export default async function handler(req, res) {
+    if (req.method !== 'POST') {
+        return res.status(405).json({ message: 'Method Not Allowed' });
+    }
+    
+    const { duration } = req.body; // Duration in seconds
+
+    if (!duration || typeof duration !== 'number') {
+        return res.status(400).json({ message: 'Invalid duration provided.' });
+    }
+
     try {
-        const { rows } = await sql`SELECT started, duration_seconds FROM QuizStatus WHERE id = 1;`;
-        const quizStarted = rows.length > 0 && rows[0].started;
-        const duration = rows.length > 0 ? rows[0].duration_seconds : 120;
-        return res.status(200).json({ quizStarted, duration });
+        await sql`
+            CREATE TABLE IF NOT EXISTS QuizStatus (
+                id INT PRIMARY KEY,
+                started BOOLEAN NOT NULL,
+                start_time TIMESTAMPTZ,
+                duration_seconds INT
+            );
+        `;
+        await sql`
+            INSERT INTO QuizStatus (id, started, start_time, duration_seconds) 
+            VALUES (1, TRUE, NOW(), ${duration})
+            ON CONFLICT (id) DO UPDATE 
+            SET started = TRUE, start_time = NOW(), duration_seconds = ${duration};
+        `;
+        return res.status(200).json({ message: 'Quiz started' });
     } catch (error) {
-        if (error.message.includes('does not exist')) {
-            return res.status(200).json({ quizStarted: false });
-        }
-        console.error('Database Error checking quiz status:', error);
-        return res.status(500).json({ message: 'Internal Server Error' });
+        console.error('Database Error:', error);
+        return res.status(500).json({ message: 'Failed to start quiz' });
     }
 }
