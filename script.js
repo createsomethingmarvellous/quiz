@@ -1,37 +1,61 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // ... (previous container variables)
+    // --- CONFIGURATION ---
+    const QUIZ_DURATION_IN_SECONDS = 120; // 2 minutes. Change this value to set quiz time.
+
+    // --- DOM ELEMENTS ---
+    const teamNameContainer = document.getElementById('team-name-container');
+    const waitingRoom = document.getElementById('waiting-room');
+    const quizContainer = document.getElementById('quiz-container');
+    const leaderboardContainer = document.getElementById('leaderboard-container');
+    const disqualifiedContainer = document.getElementById('disqualified-container');
+    const teamNameForm = document.getElementById('team-name-form');
+    const teamNameInput = document.getElementById('team-name-input');
+    const quizForm = document.getElementById('quiz-form');
+    const submitBtn = document.getElementById('submit-btn');
     const timerDisplay = document.getElementById('timer');
+
+    // --- STATE VARIABLES ---
     let teamName = '';
     let quizCheckInterval;
-    let countdown;
+    let timerInterval;
+    let hasCheated = false;
 
-    // ... (team name submission logic is the same)
-
-    // 2. Check quiz status
-    async function checkQuizStatus() {
-        try {
-            const response = await fetch('/api/check-quiz-status');
-            const data = await response.json();
-            if (data.quizStarted) {
-                clearInterval(quizCheckInterval);
-                startQuiz(data.duration, data.startTime);
-            }
-        } catch (error) {
-            console.error('Error checking quiz status:', error);
+    // 1. Handle Team Name Submission
+    teamNameForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        teamName = teamNameInput.value.trim();
+        if (teamName) {
+            teamNameContainer.classList.add('hidden');
+            waitingRoom.classList.remove('hidden');
+            startQuizStatusCheck();
         }
+    });
+
+    // 2. Check if the quiz has started
+    function startQuizStatusCheck() {
+        quizCheckInterval = setInterval(async () => {
+            try {
+                const response = await fetch('/api/check-quiz-status');
+                const data = await response.json();
+                if (data.quizStarted) {
+                    clearInterval(quizCheckInterval);
+                    startQuiz();
+                }
+            } catch (error) {
+                console.error('Error checking quiz status:', error);
+            }
+        }, 3000);
     }
 
-    function startQuizStatusCheck() {
-        quizCheckInterval = setInterval(checkQuizStatus, 3000);
-    }
-    
-    // 3. Start the quiz with timer
-    async function startQuiz(duration, startTime) {
+    // 3. Start the quiz and initialize cheat detection/timer
+    async function startQuiz() {
         waitingRoom.classList.add('hidden');
         quizContainer.classList.remove('hidden');
-
-        setupTabSwitchDetection();
-        startTimer(duration, startTime);
+        
+        // Add cheat detection
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        
+        startTimer(QUIZ_DURATION_IN_SECONDS);
 
         try {
             const response = await fetch('questions.json');
@@ -42,64 +66,61 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error fetching questions:', error);
         }
     }
+    
+    // 4. Cheat detection handler
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            console.log('User switched tabs - CHEATING DETECTED');
+            hasCheated = true;
+        }
+    }
 
-    // 4. Timer Logic
-    function startTimer(duration, startTime) {
-        const endTime = new Date(startTime).getTime() + duration * 1000;
-        
-        countdown = setInterval(() => {
-            const now = new Date().getTime();
-            const distance = endTime - now;
+    // 5. Timer logic
+    function startTimer(duration) {
+        let timer = duration;
+        timerInterval = setInterval(() => {
+            const minutes = Math.floor(timer / 60);
+            let seconds = timer % 60;
+            seconds = seconds < 10 ? '0' + seconds : seconds;
+            timerDisplay.textContent = `${minutes}:${seconds}`;
 
-            if (distance < 0) {
-                clearInterval(countdown);
-                timerDisplay.textContent = "Time's up!";
+            if (--timer < 0) {
+                clearInterval(timerInterval);
                 submitQuiz(true); // Auto-submit when time is up
-                return;
             }
-
-            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-            timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         }, 1000);
     }
 
-    // 5. Cheat Detection
-    function setupTabSwitchDetection() {
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                disqualifyUser();
-            }
+    // 6. Render questions
+    function renderQuestions(questions) {
+        questions.forEach((q, index) => {
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'question';
+            questionDiv.innerHTML = `<p>${index + 1}. ${q.question}</p>`;
+            const optionsDiv = document.createElement('div');
+            optionsDiv.className = 'options';
+            q.options.forEach((option, optionIndex) => {
+                const label = document.createElement('label');
+                label.innerHTML = `<input type="radio" name="question${index}" value="${optionIndex}" required> ${option}`;
+                optionsDiv.appendChild(label);
+            });
+            questionDiv.appendChild(optionsDiv);
+            quizForm.appendChild(questionDiv);
         });
     }
 
-    async function disqualifyUser() {
-        clearInterval(countdown); // Stop timer
-        document.removeEventListener('visibilitychange', setupTabSwitchDetection); // Prevent multiple triggers
+    // 7. Handle Quiz Submission (manual or auto)
+    submitBtn.addEventListener('click', () => submitQuiz(false));
 
-        // Hide quiz and show disqualification message
-        quizContainer.innerHTML = '<h1>You have been disqualified for switching tabs.</h1>';
-        
-        // Notify the server
-        try {
-            await fetch('/api/disqualify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ teamName }),
-            });
-        } catch (error) {
-            console.error('Error disqualifying user:', error);
-        }
-    }
-    
-    // 6. Handle Quiz Submission
-    async function submitQuiz(isAutoSubmit = false) {
+    async function submitQuiz(isAutoSubmit) {
+        clearInterval(timerInterval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+
         if (!isAutoSubmit && !quizForm.checkValidity()) {
             alert('Please answer all questions before submitting.');
             return;
         }
 
-        clearInterval(countdown);
         const formData = new FormData(quizForm);
         const answers = {};
         for (const [key, value] of formData.entries()) {
@@ -110,11 +131,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ teamName, answers }),
+                body: JSON.stringify({ teamName, answers, hasCheated }),
             });
 
             if (response.ok) {
-                showLeaderboard();
+                if (hasCheated) {
+                    quizContainer.classList.add('hidden');
+                    disqualifiedContainer.classList.remove('hidden');
+                } else {
+                    showLeaderboard();
+                }
             } else {
                 alert('Failed to submit answers.');
             }
@@ -122,8 +148,22 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error submitting answers:', error);
         }
     }
-    
-    submitBtn.addEventListener('click', () => submitQuiz(false));
 
-    // ... (renderQuestions and showLeaderboard logic is the same)
+    // 8. Show Leaderboard
+    async function showLeaderboard() {
+        quizContainer.classList.add('hidden');
+        leaderboardContainer.classList.remove('hidden');
+        try {
+            const response = await fetch('/api/leaderboard');
+            const leaderboardData = await response.json();
+            const leaderboardBody = document.getElementById('leaderboard-body');
+            leaderboardBody.innerHTML = '';
+            leaderboardData.forEach((entry, index) => {
+                const row = leaderboardBody.insertRow();
+                row.innerHTML = `<td>${index + 1}</td><td>${entry.team_name}</td><td>${entry.score}</td>`;
+            });
+        } catch (error) {
+            console.error('Error fetching leaderboard:', error);
+        }
+    }
 });

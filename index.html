@@ -25,8 +25,8 @@
 
         <!-- Quiz Container -->
         <div id="quiz-container" class="hidden">
-           <h1 id="quiz-header">Quiz</h1>
-<div id="timer-container">Time Remaining: <span id="timer"></span></div>
+            <div id="timer-container">Time Remaining: <span id="timer">02:00</span></div>
+            <h1>Quiz</h1>
             <form id="quiz-form"></form>
             <button id="submit-btn" class="hidden">Submit Answers</button>
         </div>
@@ -44,6 +44,12 @@
                 </thead>
                 <tbody id="leaderboard-body"></tbody>
             </table>
+        </div>
+        
+        <!-- Disqualified Message -->
+        <div id="disqualified-container" class="hidden">
+            <h1>You have been disqualified</h1>
+            <p>You were disqualified for switching tabs during the quiz.</p>
         </div>
     </div>
     <script src="script.js"></script>

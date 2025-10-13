@@ -7,7 +7,6 @@ body {
     margin: 0;
     background-color: #f0f2f5;
 }
-
 #app {
     width: 90%;
     max-width: 800px;
@@ -17,62 +16,45 @@ body {
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     text-align: center;
 }
-
-.hidden {
-    display: none;
-}
-
+.hidden { display: none; }
 input[type="text"], button {
     padding: 10px;
-    margin-top: 10px;
+    margin: 10px 5px;
     border-radius: 5px;
     border: 1px solid #ccc;
-    width: calc(100% - 22px);
 }
-
 button {
     cursor: pointer;
     background-color: #007bff;
     color: white;
     border: none;
-    width: auto;
     padding: 10px 20px;
 }
-
-#quiz-form {
-    text-align: left;
+#admin-controls button {
+    background-color: #28a745;
 }
-
-.question {
-    margin-bottom: 1.5rem;
+#admin-controls #reset-quiz-btn {
+    background-color: #dc3545;
 }
-
-.options label {
-    display: block;
-    margin: 0.5rem 0;
-}
-
+#quiz-form { text-align: left; }
+.question { margin-bottom: 1.5rem; }
+.options label { display: block; margin: 0.5rem 0; }
 #leaderboard-table {
     width: 100%;
     margin-top: 1rem;
     border-collapse: collapse;
 }
-
 #leaderboard-table th, #leaderboard-table td {
     border: 1px solid #ddd;
     padding: 8px;
 }
-
-#leaderboard-table th {
-    background-color: #f2f2f2;
-}
+#leaderboard-table th { background-color: #f2f2f2; }
 #timer-container {
-    font-size: 1.2rem;
+    font-size: 1.5rem;
     font-weight: bold;
-    color: #d9534f;
+    color: #dc3545;
     margin-bottom: 1rem;
 }
-
 #disqualified-container h1 {
-    color: #d9534f;
+    color: #dc3545;
 }
