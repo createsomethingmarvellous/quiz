@@ -1,5 +1,6 @@
 import { sql } from '@vercel/postgres';
-import questions from '../questions.json';
+// Corrected line below
+import questions from '../questions.json' with { type: 'json' };
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -15,7 +16,8 @@ export default async function handler(req, res) {
 
         let score = 0;
         questions.forEach((q, index) => {
-            if (answers[index] === q.answer) {
+            // Ensure answers are correctly compared
+            if (parseInt(answers[index], 10) === q.answer) {
                 score++;
             }
         });
