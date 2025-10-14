@@ -3,43 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Quiz</title>
+    <title>Admin Dashboard</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div id="app">
-        <!-- Team Name Entry -->
-        <div id="team-name-container">
-            <h1>Enter Your Team Name</h1>
-            <input type="text" id="team-name-input" placeholder="Team Name" required>
-            <button id="join-btn">Join Quiz</button>
+        <h1>Admin Dashboard</h1>
+        
+        <div id="quiz-control">
+            <button id="start-round1-btn">Start Round 1 (Resets Round 1)</button>
+            <button id="start-round2-btn">Start Round 2 (Resets Round 2)</button>
+            <button id="stop-quiz-btn" class="hidden">Stop Quiz</button>
+            <div id="admin-timer" class="hidden">
+                <h3>Quiz Timer (for Current Round)</h3>
+                <div id="timer-display">Time Left: 02:00</div>
+            </div>
+            <p id="quiz-status">Quiz Status: Not Started | Current Round: None</p>
         </div>
-
-        <!-- Waiting Room -->
-        <div id="waiting-room" class="hidden">
-            <h1>Waiting for the quiz to start...</h1>
-            <p>Do not switch tabs or you will be disqualified.</p>
-        </div>
-
-        <!-- Quiz Container -->
-        <div id="quiz-container" class="hidden">
-            <div id="round-display"></div> <!-- New: Shows "Round X" -->
-            <div id="timer">Time Left: 02:00</div>
-            <h1>Quiz</h1>
-            <p>Do not switch tabs or you will be disqualified.</p>
-            <form id="quiz-form"></form>
-            <button id="submit-btn">Submit Answers</button>
-        </div>
-
-        <!-- Disqualified/Finished View -->
-        <div id="finished-container" class="hidden">
-            <h1>Thank You!</h1>
-            <p>Your score has been submitted. You can view the results on the <a href="/leaderboard.html" target="_blank">leaderboard page</a>.</p>
-        </div>
-        <div id="disqualified-container" class="hidden">
-            <h1>You have been disqualified for switching tabs.</h1>
+        
+        <div id="leaderboard-container" class="admin-leaderboard">
+            <h2>Live Leaderboard</h2>
+            <label for="round-selector">View Leaderboard for:</label>
+            <select id="round-selector">
+                <option value="1">Round 1</option>
+                <option value="2">Round 2</option>
+            </select>
+            <table id="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Team Name</th>
+                        <th>Score</th>
+                        <th>Enter Time</th>
+                        <th>Exit Time</th>
+                        <th>Time Taken</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboard-body"></tbody>
+            </table>
         </div>
     </div>
-    <script src="script.js"></script>
+    <script src="admin.js"></script>
 </body>
 </html>

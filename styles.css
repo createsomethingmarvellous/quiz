@@ -117,29 +117,15 @@ a {
     color: #007bff;
 }
 
-#round-display {
-    font-size: 1.2rem;
-    font-weight: bold;
-    color: #007bff;
-    margin-bottom: 1rem;
-}
-
-#round-selector {
-    padding: 5px;
+select {
+    padding: 8px 12px;
     margin: 10px;
     border-radius: 5px;
     border: 1px solid #ccc;
+    font-size: 1rem;
 }
 
-button {
-    /* ... */
-    margin: 5px;
-}
-
-#start-round1-btn, #start-round2-btn {
-    background-color: #28a745; /* Green for start rounds */
-}
-
-#start-round1-btn:hover:not(:disabled), #start-round2-btn:hover:not(:disabled) { 
-    background-color: #218838; 
+label {
+    font-weight: bold;
+    margin-right: 5px;
 }

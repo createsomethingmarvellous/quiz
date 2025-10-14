@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let leaderboardInterval;
     let adminTimerInterval;
     let quizTimeLeft = QUIZ_DURATION_MINUTES * 60;
-    let currentSelectedRound = 1; // Default to Round 1 for leaderboard
+    let currentViewRound = 1; // Default view
 
     // --- HELPER FUNCTIONS ---
     function formatTime(seconds) {
@@ -52,17 +52,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (quizTimeLeft <= 0) {
                 clearInterval(adminTimerInterval);
-                timerDisplay.textContent = 'Round Ended';
-                quizStatus.textContent = `Quiz Status: Ended (Round ${currentRound})`;
-                stopQuizBtn.classList.add('hidden');
-                startRound1Btn.disabled = false;
-                startRound2Btn.disabled = false;
+                timerDisplay.textContent = 'Quiz Ended';
+                updateButtonsForInactive();
             }
         }, 1000);
     }
 
-    // Fetch leaderboard for specific round
-    async function fetchLeaderboard(round) {
+    async function fetchLeaderboard() {
+        const round = currentViewRound;
         try {
             const response = await fetch(`/api/quiz?action=leaderboard&round=${round}`);
             const data = await response.json();
@@ -95,118 +92,110 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } catch (error) {
             console.error('Error fetching leaderboard:', error);
-            leaderboardBody.innerHTML = '<tr><td colspan="6">Could not load leaderboard.</td></tr>';
+            leaderboardBody.innerHTML = '<tr><td colspan="6">Could not load leaderboard for Round ' + round + '.</td></tr>';
         }
     }
 
-    // Check initial quiz status
-    let currentRound = 0;
+    function updateButtonsForInactive() {
+        startRound1Btn.disabled = false;
+        startRound2Btn.disabled = false;
+        startRound1Btn.textContent = 'Start Round 1 (Resets Round 1)';
+        startRound2Btn.textContent = 'Start Round 2 (Resets Round 2)';
+        stopQuizBtn.classList.add('hidden');
+        adminTimer.classList.add('hidden');
+        stopAdminTimer();
+    }
+
+    function updateButtonsForActive(currentRound) {
+        startRound1Btn.disabled = true;
+        startRound2Btn.disabled = true;
+        startRound1Btn.textContent = `Round 1 In Progress - Start New to Reset`;
+        startRound2Btn.textContent = `Round 2 In Progress - Start New to Reset`;
+        stopQuizBtn.classList.remove('hidden');
+        adminTimer.classList.remove('hidden');
+        startAdminTimer();
+        roundSelector.value = currentRound.toString(); // Switch view to current round
+        currentViewRound = currentRound;
+    }
+
     async function checkQuizStatus() {
         try {
             const response = await fetch('/api/quiz?action=status');
             const data = await response.json();
-            currentRound = data.currentRound || 0;
-            if (data.quizStarted && currentRound > 0) {
-                quizStatus.textContent = `Quiz Status: Active (Round ${currentRound})`;
-                startRound1Btn.disabled = currentRound === 1;
-                startRound2Btn.disabled = currentRound === 2;
-                stopQuizBtn.classList.remove('hidden');
-                adminTimer.classList.remove('hidden');
-                roundSelector.value = currentRound.toString();
-                startAdminTimer();
+            if (data.quizStarted && data.currentRound > 0) {
+                quizStatus.textContent = `Quiz Status: Active | Current Round: ${data.currentRound}`;
+                updateButtonsForActive(data.currentRound);
             } else {
-                quizStatus.textContent = 'Quiz Status: Not Started (Round 0)';
-                startRound1Btn.disabled = false;
-                startRound2Btn.disabled = false;
-                stopQuizBtn.classList.add('hidden');
-                adminTimer.classList.add('hidden');
-                stopAdminTimer();
+                quizStatus.textContent = 'Quiz Status: Not Started | Current Round: None';
+                updateButtonsForInactive();
             }
         } catch (error) {
             console.error('Error checking initial status:', error);
-            quizStatus.textContent = 'Quiz Status: Unknown';
+            quizStatus.textContent = 'Quiz Status: Unknown | Current Round: None';
+            updateButtonsForInactive();
         }
     }
 
     // --- EVENT LISTENERS ---
     startRound1Btn.addEventListener('click', async () => {
-        if (!confirm('Start Round 1? This resets Round 1 scores.')) return;
+        if (!confirm('Start Round 1? This will reset Round 1 scores and times.')) return;
         try {
             const response = await fetch('/api/quiz?action=start&round=1', { method: 'POST' });
             if (response.ok) {
                 alert('Round 1 started!');
-                currentRound = 1;
-                updateUIForRound(1);
-                roundSelector.value = '1';
-                fetchLeaderboard(1);
+                checkQuizStatus(); // Re-check to update UI
+                fetchLeaderboard(); // Refresh for Round 1
             } else {
                 alert('Failed to start Round 1.');
             }
         } catch (error) {
             console.error('Error starting Round 1:', error);
+            alert('Error starting Round 1.');
         }
     });
 
     startRound2Btn.addEventListener('click', async () => {
-        if (!confirm('Start Round 2? This resets Round 2 scores (stops Round 1 if active).')) return;
+        if (!confirm('Start Round 2? This will reset Round 2 scores and times.')) return;
         try {
             const response = await fetch('/api/quiz?action=start&round=2', { method: 'POST' });
             if (response.ok) {
                 alert('Round 2 started!');
-                currentRound = 2;
-                updateUIForRound(2);
-                roundSelector.value = '2';
-                fetchLeaderboard(2);
+                checkQuizStatus(); // Re-check to update UI
+                fetchLeaderboard(); // Refresh for Round 2
             } else {
                 alert('Failed to start Round 2.');
             }
         } catch (error) {
             console.error('Error starting Round 2:', error);
+            alert('Error starting Round 2.');
         }
     });
 
     stopQuizBtn.addEventListener('click', async () => {
-        if (!confirm('Stop current round?')) return;
+        if (!confirm('Stop current round? Participants can finish, but new ones won\'t start.')) return;
         try {
             const response = await fetch('/api/quiz?action=stop', { method: 'POST' });
             if (response.ok) {
-                alert('Current round stopped.');
-                currentRound = 0;
-                updateUIForRound(0);
-                stopAdminTimer();
+                alert('Quiz stopped.');
+                checkQuizStatus(); // Re-check to update UI
             } else {
-                alert('Failed to stop.');
+                alert('Failed to stop quiz.');
             }
         } catch (error) {
             console.error('Error stopping quiz:', error);
+            alert('Error stopping quiz.');
         }
     });
 
     roundSelector.addEventListener('change', (e) => {
-        currentSelectedRound = parseInt(e.target.value);
-        fetchLeaderboard(currentSelectedRound);
+        currentViewRound = parseInt(e.target.value);
+        fetchLeaderboard(); // Refresh for selected round
     });
-
-    function updateUIForRound(round) {
-        quizStatus.textContent = round > 0 ? `Quiz Status: Active (Round ${round})` : 'Quiz Status: Not Started (Round 0)';
-        startRound1Btn.disabled = round === 1;
-        startRound2Btn.disabled = round === 2;
-        stopQuizBtn.classList.toggle('hidden', round === 0);
-        if (round > 0) {
-            adminTimer.classList.remove('hidden');
-            startAdminTimer();
-        } else {
-            adminTimer.classList.add('hidden');
-            stopAdminTimer();
-        }
-    }
 
     // --- INITIALIZATION ---
     checkQuizStatus();
-    
     if (!leaderboardInterval) {
-        leaderboardInterval = setInterval(() => fetchLeaderboard(currentSelectedRound), 5000);
+        leaderboardInterval = setInterval(fetchLeaderboard, 5000);
     }
-    
-    fetchLeaderboard(1); // Initial fetch for Round 1
+    fetchLeaderboard();
 });
