@@ -1,14 +1,22 @@
 import { sql } from '@vercel/postgres';
+import questionsRound1 from '../questions_round1.json' with { type: 'json' };
+import questionsRound2 from '../questions_round2.json' with { type: 'json' };
+
+// Helper to get questions by round
+function getQuestionsForRound(round) {
+    return round === 1 ? questionsRound1 : (round === 2 ? questionsRound2 : []);
+}
 
 // Helper to ensure tables exist and have all required columns
 const ensureTables = async () => {
-    // Create tables if they don't exist
+    // Create tables if they don't exist (include round in Scores)
     await sql`CREATE TABLE IF NOT EXISTS Scores (
         id SERIAL PRIMARY KEY,
         round INT NOT NULL,
-        team_name VARCHAR(255) NOT NULL UNIQUE,
+        team_name VARCHAR(255) NOT NULL,
         score INT NOT NULL DEFAULT 0,
-        submitted_at TIMESTAMP DEFAULT NOW()
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(round, team_name)
     );`;
     
     await sql`CREATE TABLE IF NOT EXISTS QuizStatus (
@@ -17,64 +25,76 @@ const ensureTables = async () => {
         current_round INT DEFAULT 0
     );`;
 
-    // Add missing columns if they don't exist (for migration)
-    try {
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS enter_time TIMESTAMP;`;
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS exit_time TIMESTAMP;`;
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS time_taken INT;`;
-        await sql`ALTER TABLE QuizStatus ADD COLUMN IF NOT EXISTS current_round INT DEFAULT 0;`;
-    } catch (error) {
-        // Fallback for older PostgreSQL versions
-        const columnsToAdd = [
-            'ALTER TABLE Scores ADD COLUMN enter_time TIMESTAMP',
-            'ALTER TABLE Scores ADD COLUMN exit_time TIMESTAMP',
-            'ALTER TABLE Scores ADD COLUMN time_taken INT',
-            'ALTER TABLE QuizStatus ADD COLUMN current_round INT DEFAULT 0'
-        ];
-        
-        for (const columnSQL of columnsToAdd) {
+    // Add missing columns (robust migration)
+    const columnsToAdd = [
+        { table: 'Scores', column: 'enter_time', type: 'TIMESTAMP' },
+        { table: 'Scores', column: 'exit_time', type: 'TIMESTAMP' },
+        { table: 'Scores', column: 'time_taken', type: 'INT' },
+        { table: 'QuizStatus', column: 'current_round', type: 'INT DEFAULT 0' }
+    ];
+
+    for (const { table, column, type } of columnsToAdd) {
+        try {
+            const alterSQL = `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`;
+            await sql.unsafe(alterSQL);
+        } catch (error) {
+            console.error(`Migration warning for ${table}.${column}:`, error.message);
+            // If IF NOT EXISTS not supported, try without and catch
             try {
-                await sql.unsafe(columnSQL);
+                const basicSQL = `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`;
+                await sql.unsafe(basicSQL);
             } catch (colError) {
-                // Column already exists - continue
-                console.log('Column may already exist:', colError.message);
+                if (!colError.message.includes('already exists')) {
+                    console.error(`Failed to add ${table}.${column}:`, colError.message);
+                }
             }
         }
     }
 
-    // Ensure QuizStatus has a default row
+    // Ensure QuizStatus default row
     await sql`INSERT INTO QuizStatus (id, started, current_round) VALUES (1, FALSE, 0) ON CONFLICT (id) DO NOTHING;`;
+
+    // Verify round column exists (post-migration check)
+    try {
+        const { rows } = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'Scores' AND column_name = 'round';`;
+        if (rows.length === 0) {
+            console.error('Critical: round column missing from Scores table. Manual migration needed.');
+        }
+    } catch (error) {
+        console.error('Error verifying migration:', error);
+    }
 };
 
-// Load questions based on round (server-side for security, but since static, we could do client-side too)
-async function getQuestionsForRound(round) {
-    try {
-        const response = await fetch(`questions_round${round}.json`);
-        return await response.json();
-    } catch (error) {
-        console.error('Error loading questions:', error);
-        return []; // Fallback empty
-    }
-}
-
 export default async function handler(req, res) {
-    const { action, round } = req.query; // round param for leaderboard
+    const { action, round: queryRound } = req.query;
 
     try {
-        await ensureTables(); // Ensure tables exist with all columns
+        await ensureTables(); // Ensure tables and columns
+
+        const targetRound = parseInt(queryRound) || 0;
 
         // --- ADMIN: Start Round 1 ---
-        if (req.method === 'POST' && action === 'start' && round === '1') {
-            await sql`DELETE FROM Scores WHERE round = 1;`; // Clear only Round 1 scores
-            await sql`UPDATE QuizStatus SET started = TRUE, current_round = 1 WHERE id = 1;`;
-            return res.status(200).json({ message: 'Round 1 started and scores reset.' });
+        if (req.method === 'POST' && action === 'start' && queryRound === '1') {
+            try {
+                await sql`DELETE FROM Scores WHERE round = 1;`;
+                await sql`UPDATE QuizStatus SET started = TRUE, current_round = 1 WHERE id = 1;`;
+                return res.status(200).json({ message: 'Round 1 started and scores reset.', currentRound: 1 });
+            } catch (error) {
+                console.error('Start Round 1 error:', error);
+                return res.status(500).json({ error: 'Failed to start Round 1' });
+            }
         }
 
         // --- ADMIN: Start Round 2 ---
-        if (req.method === 'POST' && action === 'start' && round === '2') {
-            await sql`DELETE FROM Scores WHERE round = 2;`; // Clear only Round 2 scores
-            await sql`UPDATE QuizStatus SET started = TRUE, current_round = 2 WHERE id = 1;`;
-            return res.status(200).json({ message: 'Round 2 started and scores reset.' });
+        if (req.method === 'POST' && action === 'start' && queryRound === '2') {
+            try {
+                await sql`DELETE FROM Scores WHERE round = 2;`;
+                await sql`UPDATE QuizStatus SET started = TRUE, current_round = 2 WHERE id = 1;`;
+                return res.status(200).json({ message: 'Round 2 started and scores reset.', currentRound: 2 });
+            } catch (error) {
+                console.error('Start Round 2 error:', error);
+                return res.status(500).json({ error: 'Failed to start Round 2' });
+            }
         }
 
         // --- ADMIN: Stop Current Round ---
@@ -83,36 +103,25 @@ export default async function handler(req, res) {
             const currentRound = statusRows[0]?.current_round || 0;
             if (currentRound > 0) {
                 await sql`UPDATE QuizStatus SET started = FALSE WHERE id = 1;`;
-                return res.status(200).json({ message: `Current round (${currentRound}) stopped.` });
+                return res.status(200).json({ message: `Round ${currentRound} stopped.`, currentRound });
             }
             return res.status(400).json({ message: 'No active round to stop.' });
         }
 
-        // --- USER: Check Quiz Status (includes current_round) ---
+        // --- USER: Check Quiz Status ---
         if (req.method === 'GET' && action === 'status') {
             const { rows } = await sql`SELECT started, current_round FROM QuizStatus WHERE id = 1;`;
             const status = rows.length > 0 ? rows[0] : { started: false, current_round: 0 };
             return res.status(200).json({ quizStarted: status.started, currentRound: status.current_round });
         }
 
-        // --- USER: Get Questions for Current Round ---
-        if (req.method === 'GET' && action === 'questions') {
-            const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
-            const currentRound = rows[0]?.current_round || 0;
-            if (currentRound < 1 || currentRound > 2) {
-                return res.status(400).json({ error: 'No active round' });
-            }
-            const questions = await getQuestionsForRound(currentRound);
-            return res.status(200).json(questions);
-        }
-
-        // --- USER: Submit Score (includes current_round) ---
+        // --- USER: Submit Score ---
         if (req.method === 'POST' && action === 'submit') {
-            const { teamName, answers, enterTime, exitTime } = req.body;
+            const { teamName, answers, enterTime, exitTime, round } = req.body;
             const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
             const currentRound = rows[0]?.current_round || 0;
             if (currentRound < 1 || currentRound > 2) {
-                return res.status(400).json({ error: 'No active round for submission' });
+                return res.status(400).json({ error: `No active round (current: ${currentRound}) for submission` });
             }
             
             const now = Date.now();
@@ -120,54 +129,68 @@ export default async function handler(req, res) {
             const fallbackExit = exitTime || now;
             const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
             
+            // Calculate score using imported questions
+            const questions = getQuestionsForRound(currentRound);
             let score = 0;
-            if (answers) {
-                const questions = await getQuestionsForRound(currentRound);
+            if (answers && questions.length > 0) {
                 questions.forEach((q, index) => {
-                    if (answers[index] === q.answer) {
+                    if (answers[index] !== undefined && answers[index] === q.answer) {
                         score++;
                     }
                 });
+            } else {
+                console.warn(`Scoring warning: Questions empty or no answers for Round ${currentRound}`);
             }
             
-            await sql`
-                INSERT INTO Scores (round, team_name, score, enter_time, exit_time, time_taken)
-                VALUES (${currentRound}, ${teamName}, ${score}, to_timestamp(${fallbackEnter / 1000}), to_timestamp(${fallbackExit / 1000}), ${timeTaken})
-                ON CONFLICT (round, team_name) DO UPDATE SET
-                    score = EXCLUDED.score,
-                    enter_time = EXCLUDED.enter_time,
-                    exit_time = EXCLUDED.exit_time,
-                    time_taken = EXCLUDED.time_taken
-            `;
-            return res.status(200).json({ message: 'Score submitted for Round ' + currentRound });
+            try {
+                await sql`
+                    INSERT INTO Scores (round, team_name, score, enter_time, exit_time, time_taken)
+                    VALUES (${currentRound}, ${teamName}, ${score}, to_timestamp(${fallbackEnter / 1000}), to_timestamp(${fallbackExit / 1000}), ${timeTaken})
+                    ON CONFLICT (round, team_name) DO UPDATE SET
+                        score = EXCLUDED.score,
+                        enter_time = EXCLUDED.enter_time,
+                        exit_time = EXCLUDED.exit_time,
+                        time_taken = EXCLUDED.time_taken
+                `;
+                console.log(`Insert success: Team ${teamName}, Round ${currentRound}, Score ${score}`); // Log for debugging
+                return res.status(200).json({ message: `Score ${score} submitted for Round ${currentRound}. Questions loaded: ${questions.length}` });
+            } catch (insertError) {
+                console.error('Insert error:', insertError);
+                return res.status(500).json({ error: 'Failed to save score', details: insertError.message });
+            }
         }
         
-        // --- USER: Disqualify (includes current_round) ---
+        // --- USER: Disqualify ---
         if (req.method === 'POST' && action === 'disqualify') {
-            const { teamName, enterTime } = req.body;
+            const { teamName, enterTime, round } = req.body;
             const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
             const currentRound = rows[0]?.current_round || 0;
             if (currentRound < 1 || currentRound > 2) {
-                return res.status(400).json({ error: 'No active round for disqualification' });
+                return res.status(400).json({ error: `No active round (current: ${currentRound}) for disqualification` });
             }
             
             const exitTime = Date.now();
             const timeTaken = enterTime ? Math.floor((exitTime - enterTime) / 1000) : 0;
             
-            await sql`
-                INSERT INTO Scores (round, team_name, score, enter_time, exit_time, time_taken)
-                VALUES (${currentRound}, ${teamName}, -1, to_timestamp(${(enterTime || (exitTime - 60000)) / 1000}), NOW(), ${timeTaken})
-                ON CONFLICT (round, team_name) DO UPDATE SET
-                    score = -1,
-                    exit_time = NOW(),
-                    time_taken = ${timeTaken}
-            `;
-            return res.status(200).json({ message: 'User disqualified for Round ' + currentRound });
+            try {
+                await sql`
+                    INSERT INTO Scores (round, team_name, score, enter_time, exit_time, time_taken)
+                    VALUES (${currentRound}, ${teamName}, -1, to_timestamp(${(enterTime || (exitTime - 60000)) / 1000}), NOW(), ${timeTaken})
+                    ON CONFLICT (round, team_name) DO UPDATE SET
+                        score = -1,
+                        exit_time = NOW(),
+                        time_taken = ${timeTaken}
+                `;
+                console.log(`Disqualify success: Team ${teamName}, Round ${currentRound}`);
+                return res.status(200).json({ message: `Disqualified for Round ${currentRound}` });
+            } catch (error) {
+                console.error('Disqualify error:', error);
+                return res.status(500).json({ error: 'Failed to disqualify', details: error.message });
+            }
         }
 
-        // --- PUBLIC: Get Leaderboard (filtered by round) ---
+        // --- PUBLIC/ADMIN: Get Leaderboard (filtered by round) ---
         if (req.method === 'GET' && action === 'leaderboard') {
-            const targetRound = parseInt(round) || 0; // 0 means current round
             let queryRound;
             if (targetRound === 0) {
                 const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
@@ -176,12 +199,13 @@ export default async function handler(req, res) {
                 queryRound = targetRound;
             }
             if (queryRound < 1 || queryRound > 2) {
-                return res.status(200).json([]); // No round active
+                console.log(`No round for leaderboard: ${queryRound}`);
+                return res.status(200).json({ data: [], round: queryRound, message: 'No active round' });
             }
             
             try {
                 const { rows } = await sql`
-                    SELECT team_name, score, enter_time, exit_time, time_taken
+                    SELECT team_name, score, enter_time, exit_time, time_taken, submitted_at
                     FROM Scores
                     WHERE round = ${queryRound}
                     ORDER BY 
@@ -189,10 +213,11 @@ export default async function handler(req, res) {
                         CASE WHEN score < 0 THEN NULL ELSE time_taken END ASC NULLS LAST,
                         submitted_at ASC
                 `;
-                return res.status(200).json(rows);
+                console.log(`Leaderboard fetched for Round ${queryRound}: ${rows.length} rows`);
+                return res.status(200).json({ data: rows, round: queryRound });
             } catch (error) {
                 console.error('Leaderboard query error:', error);
-                return res.status(200).json([]);
+                return res.status(500).json({ error: 'Query failed', details: error.message, round: queryRound });
             }
         }
 
