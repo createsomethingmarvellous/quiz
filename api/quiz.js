@@ -6,7 +6,10 @@ const ensureTables = async () => {
     await sql`CREATE TABLE IF NOT EXISTS Scores (
         id SERIAL PRIMARY KEY,
         team_name VARCHAR(255) NOT NULL UNIQUE,
-        score INT NOT NULL,
+        score INT NOT NULL DEFAULT 0,
+        enter_time TIMESTAMP,
+        exit_time TIMESTAMP,
+        time_taken INT,  -- In seconds
         submitted_at TIMESTAMP DEFAULT NOW()
     );`;
     await sql`CREATE TABLE IF NOT EXISTS QuizStatus (
@@ -23,7 +26,7 @@ export default async function handler(req, res) {
 
         // --- ADMIN: Start Quiz & Reset ---
         if (req.method === 'POST' && action === 'start') {
-            await sql`TRUNCATE TABLE Scores;`; // Clear scores
+            await sql`TRUNCATE TABLE Scores;`; // Clear scores and times
             await sql`DELETE FROM QuizStatus WHERE id = 1;`; // Reset status
             await sql`INSERT INTO QuizStatus (id, started) VALUES (1, TRUE);`;
             return res.status(200).json({ message: 'Quiz started and scores reset.' });
@@ -37,28 +40,54 @@ export default async function handler(req, res) {
 
         // --- USER: Submit Score ---
         if (req.method === 'POST' && action === 'submit') {
-            const { teamName, answers } = req.body;
+            const { teamName, answers, enterTime, exitTime } = req.body;
+            const timeTaken = Math.floor((exitTime - enterTime) / 1000); // Calculate in seconds
             let score = 0;
-            questions.forEach((q, index) => {
-                if (answers && answers[index] === q.answer) {
-                    score++;
-                }
-            });
-            await sql`INSERT INTO Scores (team_name, score) VALUES (${teamName}, ${score}) ON CONFLICT (team_name) DO NOTHING;`;
+            if (answers) {
+                questions.forEach((q, index) => {
+                    if (answers[index] === q.answer) {
+                        score++;
+                    }
+                });
+            }
+            await sql`
+                INSERT INTO Scores (team_name, score, enter_time, exit_time, time_taken)
+                VALUES (${teamName}, ${score}, to_timestamp(${enterTime / 1000}), to_timestamp(${exitTime / 1000}), ${timeTaken})
+                ON CONFLICT (team_name) DO UPDATE SET
+                    score = EXCLUDED.score,
+                    enter_time = EXCLUDED.enter_time,
+                    exit_time = EXCLUDED.exit_time,
+                    time_taken = EXCLUDED.time_taken
+            `;
             return res.status(200).json({ message: 'Score submitted.' });
         }
         
         // --- USER: Disqualify ---
         if (req.method === 'POST' && action === 'disqualify') {
-            const { teamName } = req.body;
-            // Score of -1 indicates disqualification
-            await sql`INSERT INTO Scores (team_name, score) VALUES (${teamName}, -1) ON CONFLICT (team_name) DO UPDATE SET score = -1;`;
+            const { teamName, enterTime } = req.body;
+            const exitTime = Date.now();
+            const timeTaken = Math.floor((exitTime - enterTime) / 1000); // Still calculate time until disqualification
+            await sql`
+                INSERT INTO Scores (team_name, score, enter_time, exit_time, time_taken)
+                VALUES (${teamName}, -1, to_timestamp(${enterTime / 1000}), NOW(), ${timeTaken})
+                ON CONFLICT (team_name) DO UPDATE SET
+                    score = -1,
+                    exit_time = NOW(),
+                    time_taken = ${timeTaken}
+            `;
             return res.status(200).json({ message: 'User disqualified.' });
         }
 
         // --- PUBLIC: Get Leaderboard ---
         if (req.method === 'GET' && action === 'leaderboard') {
-            const { rows } = await sql`SELECT team_name, score FROM Scores ORDER BY score DESC, submitted_at ASC;`;
+            const { rows } = await sql`
+                SELECT team_name, score, enter_time, exit_time, time_taken
+                FROM Scores
+                ORDER BY 
+                    CASE WHEN score < 0 THEN 999 END,  -- Disqualified last
+                    score DESC, 
+                    submitted_at ASC
+            `;
             return res.status(200).json(rows);
         }
 
@@ -70,4 +99,3 @@ export default async function handler(req, res) {
         return res.status(500).json({ message: 'Internal Server Error', error: error.message });
     }
 }
-    

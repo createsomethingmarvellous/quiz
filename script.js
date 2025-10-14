@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- STATE ---
     let teamName = '';
+    let enterTime = null; // New: Track when quiz starts
     let quizCheckInterval;
     let timerInterval;
     let hasBeenDisqualified = false;
@@ -53,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         waitingRoom.classList.add('hidden');
         quizContainer.classList.remove('hidden');
         
-        // Anti-cheat listener
+        enterTime = Date.now(); // New: Record enter time
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         try {
@@ -110,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearInterval(timerInterval);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
 
+        const exitTime = Date.now(); // New: Record exit time
         const formData = new FormData(quizForm);
         const answers = {};
         for (const [key, value] of formData.entries()) {
@@ -120,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetch('/api/quiz?action=submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ teamName, answers }),
+                body: JSON.stringify({ teamName, answers, enterTime, exitTime }),
             });
         } catch (error) {
             console.error('Error submitting answers:', error);
@@ -132,16 +134,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 7. Anti-Cheat: Tab Change Detection
     async function handleVisibilityChange() {
-        if (document.hidden && !hasBeenDisqualified) {
+        if (document.hidden && !hasBeenDisqualified && enterTime) {
             hasBeenDisqualified = true;
             clearInterval(timerInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            
+            const exitTime = Date.now(); // New: Record exit time on disqualification
             
             try {
                 await fetch('/api/quiz?action=disqualify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ teamName }),
+                    body: JSON.stringify({ teamName, enterTime }),
                 });
             } catch (error) {
                 console.error('Failed to disqualify:', error);
