@@ -3,10 +3,12 @@ import questionsRound1 from '../questions_round1.json' with { type: 'json' };
 import questionsRound2 from '../questions_round2.json' with { type: 'json' };
 
 
+
 // Helper to get questions by round
 function getQuestionsForRound(round) {
     return round === 1 ? questionsRound1 : (round === 2 ? questionsRound2 : []);
 }
+
 
 
 // Helper to ensure tables exist and have all required columns
@@ -55,6 +57,7 @@ const ensureTables = async () => {
         }
     }
 
+
     // Add unique constraint on (round, team_name) if missing (required for ON CONFLICT)
     try {
         await sql`ALTER TABLE Scores ADD CONSTRAINT IF NOT EXISTS unique_round_team UNIQUE (round, team_name);`;
@@ -72,6 +75,7 @@ const ensureTables = async () => {
         }
     }
 
+
     // Set safe defaults for time columns (prevents query NULL issues)
     try {
         await sql`UPDATE Scores SET time_taken = 0 WHERE time_taken IS NULL;`;
@@ -80,6 +84,7 @@ const ensureTables = async () => {
     } catch (defaultError) {
         console.log('Time defaults already set or no data:', defaultError.message);
     }
+
 
     // Ensure QuizStatus default row
     await sql`INSERT INTO QuizStatus (id, started, current_round) VALUES (1, FALSE, 0) ON CONFLICT (id) DO NOTHING;`;
@@ -97,7 +102,11 @@ const ensureTables = async () => {
         } else {
             // If column exists but some rows NULL, backfill
             const { rows: nullCheck } = await sql`SELECT COUNT(*) as null_count FROM Scores WHERE round IS NULL;`;
-            if (parseInt(nullCheck[0].null_count) > 0) {
+            let nullCount = 0;
+            if (nullCheck && nullCheck.length > 0 && nullCheck[0] && nullCheck[0].null_count !== undefined) {
+                nullCount = parseInt(nullCheck[0].null_count, 10);
+            }
+            if (nullCount > 0) {
                 await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;
                 console.log('Backfilled NULL rounds to 1.');
             }
@@ -106,6 +115,7 @@ const ensureTables = async () => {
         console.error('Error in round column verification/backfill:', error);
     }
 };
+
 
 
 export default async function handler(req, res) {
@@ -268,7 +278,7 @@ export default async function handler(req, res) {
                 return res.status(200).json({ data: rows, round: queryRound });
             } catch (error) {
                 console.error('Leaderboard query error:', error);
-                return res.status(500).json({ error: 'Query failed', details: error.message, round: queryRound });
+                return res.status(200).json({ data: [], round: queryRound, error: 'Query failed', details: error.message });
             }
         }
 
