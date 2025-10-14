@@ -22,8 +22,7 @@ const ensureTables = async () => {
         await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS exit_time TIMESTAMP;`;
         await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS time_taken INT;`;
     } catch (error) {
-        // Some versions of PostgreSQL don't support "IF NOT EXISTS" for ALTER TABLE
-        // Try to add columns one by one and ignore errors if they already exist
+        // Fallback for older PostgreSQL versions
         const columnsToAdd = [
             'ALTER TABLE Scores ADD COLUMN enter_time TIMESTAMP',
             'ALTER TABLE Scores ADD COLUMN exit_time TIMESTAMP',
@@ -34,7 +33,7 @@ const ensureTables = async () => {
             try {
                 await sql.unsafe(columnSQL);
             } catch (colError) {
-                // Column already exists or other error - continue
+                // Column already exists - continue
                 console.log('Column may already exist:', colError.message);
             }
         }
@@ -64,54 +63,29 @@ export default async function handler(req, res) {
         // --- USER: Submit Score ---
         if (req.method === 'POST' && action === 'submit') {
             const { teamName, answers, enterTime, exitTime } = req.body;
+            const now = Date.now();
+            const fallbackEnter = enterTime || (now - 120000); // 2 min ago if missing
+            const fallbackExit = exitTime || now;
+            const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
             
-            if (!enterTime || !exitTime) {
-                // Fallback for missing time data
-                const now = Date.now();
-                const fallbackEnter = enterTime || (now - 120000); // 2 minutes ago if missing
-                const fallbackExit = exitTime || now;
-                const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
-                
-                let score = 0;
-                if (answers) {
-                    questions.forEach((q, index) => {
-                        if (answers[index] === q.answer) {
-                            score++;
-                        }
-                    });
-                }
-                
-                await sql`
-                    INSERT INTO Scores (team_name, score, enter_time, exit_time, time_taken)
-                    VALUES (${teamName}, ${score}, to_timestamp(${fallbackEnter / 1000}), to_timestamp(${fallbackExit / 1000}), ${timeTaken})
-                    ON CONFLICT (team_name) DO UPDATE SET
-                        score = EXCLUDED.score,
-                        enter_time = EXCLUDED.enter_time,
-                        exit_time = EXCLUDED.exit_time,
-                        time_taken = EXCLUDED.time_taken
-                `;
-            } else {
-                const timeTaken = Math.floor((exitTime - enterTime) / 1000);
-                let score = 0;
-                if (answers) {
-                    questions.forEach((q, index) => {
-                        if (answers[index] === q.answer) {
-                            score++;
-                        }
-                    });
-                }
-                
-                await sql`
-                    INSERT INTO Scores (team_name, score, enter_time, exit_time, time_taken)
-                    VALUES (${teamName}, ${score}, to_timestamp(${enterTime / 1000}), to_timestamp(${exitTime / 1000}), ${timeTaken})
-                    ON CONFLICT (team_name) DO UPDATE SET
-                        score = EXCLUDED.score,
-                        enter_time = EXCLUDED.enter_time,
-                        exit_time = EXCLUDED.exit_time,
-                        time_taken = EXCLUDED.time_taken
-                `;
+            let score = 0;
+            if (answers) {
+                questions.forEach((q, index) => {
+                    if (answers[index] === q.answer) {
+                        score++;
+                    }
+                });
             }
             
+            await sql`
+                INSERT INTO Scores (team_name, score, enter_time, exit_time, time_taken)
+                VALUES (${teamName}, ${score}, to_timestamp(${fallbackEnter / 1000}), to_timestamp(${fallbackExit / 1000}), ${timeTaken})
+                ON CONFLICT (team_name) DO UPDATE SET
+                    score = EXCLUDED.score,
+                    enter_time = EXCLUDED.enter_time,
+                    exit_time = EXCLUDED.exit_time,
+                    time_taken = EXCLUDED.time_taken
+            `;
             return res.status(200).json({ message: 'Score submitted.' });
         }
         
@@ -123,7 +97,7 @@ export default async function handler(req, res) {
             
             await sql`
                 INSERT INTO Scores (team_name, score, enter_time, exit_time, time_taken)
-                VALUES (${teamName}, -1, to_timestamp(${(enterTime || exitTime - 60000) / 1000}), NOW(), ${timeTaken})
+                VALUES (${teamName}, -1, to_timestamp(${(enterTime || (exitTime - 60000)) / 1000}), NOW(), ${timeTaken})
                 ON CONFLICT (team_name) DO UPDATE SET
                     score = -1,
                     exit_time = NOW(),
@@ -132,22 +106,24 @@ export default async function handler(req, res) {
             return res.status(200).json({ message: 'User disqualified.' });
         }
 
-        // --- PUBLIC: Get Leaderboard ---
+        // --- PUBLIC: Get Leaderboard (Updated Sorting with Time Tie-Breaker) ---
         if (req.method === 'GET' && action === 'leaderboard') {
             try {
                 const { rows } = await sql`
                     SELECT team_name, score, enter_time, exit_time, time_taken
                     FROM Scores
                     ORDER BY 
-                        CASE WHEN score < 0 THEN 999 END,
-                        score DESC, 
+                        -- Push disqualified (score < 0) to the end by treating their score as very low
+                        CASE WHEN score < 0 THEN -999 ELSE score END DESC,
+                        -- For non-disqualified ties: fastest time first (time_taken ASC, NULLs last)
+                        CASE WHEN score < 0 THEN NULL ELSE time_taken END ASC NULLS LAST,
+                        -- Final tie-breaker: earlier submission first
                         submitted_at ASC
                 `;
                 return res.status(200).json(rows);
             } catch (error) {
                 console.error('Leaderboard query error:', error);
-                // If there's still an issue with the query, return empty array
-                return res.status(200).json([]);
+                return res.status(200).json([]); // Fallback to empty array
             }
         }
 
