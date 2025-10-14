@@ -40,7 +40,12 @@ button {
     transition: background-color 0.2s;
 }
 
-button:hover { background-color: #0056b3; }
+button:hover:not(:disabled) { background-color: #0056b3; }
+
+button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
 
 #quiz-form { text-align: left; }
 .question { margin-bottom: 1.5rem; }
@@ -71,11 +76,27 @@ button:hover { background-color: #0056b3; }
 
 .admin-leaderboard { margin-top: 2rem; }
 
-#timer {
+#timer, #timer-display {
     font-size: 1.5rem;
     font-weight: bold;
     color: #d9534f;
-    margin-bottom: 1rem;
+    margin: 1rem 0;
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 5px;
+}
+
+#quiz-status {
+    font-weight: bold;
+    margin: 1rem 0;
+    color: #28a745; /* Green for active */
+}
+
+#quiz-control {
+    margin-bottom: 2rem;
+    border: 1px solid #ddd;
+    padding: 1rem;
+    border-radius: 5px;
 }
 
 .disqualified td {

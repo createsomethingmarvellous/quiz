@@ -9,7 +9,15 @@
 <body>
     <div id="app">
         <h1>Admin Dashboard</h1>
-        <button id="start-quiz-btn">Start New Quiz (Resets Leaderboard)</button>
+        
+        <div id="quiz-control">
+            <button id="start-quiz-btn">Start New Quiz (Resets Leaderboard)</button>
+            <div id="admin-timer" class="hidden">
+                <h3>Quiz Timer (for Participants)</h3>
+                <div id="timer-display">Time Left: 02:00</div>
+            </div>
+            <p id="quiz-status">Quiz Status: Not Started</p>
+        </div>
         
         <div id="leaderboard-container" class="admin-leaderboard">
             <h2>Live Leaderboard</h2>
