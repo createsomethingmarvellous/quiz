@@ -17,10 +17,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     
     try {
-        // Get current round
+        // Step 1: Get current round from status
         const statusResponse = await fetch('/api/quiz?action=status');
+        if (!statusResponse.ok) {
+            throw new Error(`Status HTTP ${statusResponse.status}`);
+        }
         const statusData = await statusResponse.json();
-        const currentRound = statusData.currentRound;
+        const currentRound = statusData.currentRound || 0;
         
         if (currentRound < 1 || currentRound > 2) {
             leaderboardTitle.textContent = 'No Active Round';
@@ -30,13 +33,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         leaderboardTitle.textContent = `Leaderboard - Round ${currentRound}`;
         
-        // Fetch leaderboard for current round
+        // Step 2: Fetch leaderboard for current round
         const response = await fetch(`/api/quiz?action=leaderboard&round=${currentRound}`);
-        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(`Leaderboard HTTP ${response.status}`);
+        }
+        const result = await response.json();
+        
+        // Handle new API structure: { data: rows, round: X } or { error: '...' }
+        if (result.error) {
+            console.error(`API Error for Round ${currentRound}:`, result.error, result.details);
+            leaderboardBody.innerHTML = `<tr><td colspan="6">Error loading Round ${currentRound}: ${result.error}</td></tr>`;
+            return;
+        }
+        
+        const data = result.data || []; // Extract data array
+        console.log(`Public leaderboard fetched for Round ${result.round || currentRound}: ${data.length} entries`); // Debug log
         
         leaderboardBody.innerHTML = '';
         if (data.length === 0) {
-            leaderboardBody.innerHTML = '<tr><td colspan="6">No data for this round yet.</td></tr>';
+            leaderboardBody.innerHTML = `<tr><td colspan="6">No data for Round ${result.round || currentRound} yet.</td></tr>`;
             return;
         }
         
@@ -65,8 +81,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             `;
         });
     } catch (error) {
-        console.error('Error fetching leaderboard:', error);
+        console.error('Error fetching public leaderboard:', error);
         leaderboardTitle.textContent = 'Error Loading Leaderboard';
-        leaderboardBody.innerHTML = '<tr><td colspan="6">Could not load leaderboard.</td></tr>';
+        leaderboardBody.innerHTML = '<tr><td colspan="6">Could not load leaderboard. Please try again.</td></tr>';
     }
 });
