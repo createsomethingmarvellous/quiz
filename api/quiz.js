@@ -1,227 +1,284 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // --- CONFIGURATION ---
-    const QUIZ_DURATION_MINUTES = 2;
+import { sql } from '@vercel/postgres';
+import questionsRound1 from '../questions_round1.json' with { type: 'json' };
+import questionsRound2 from '../questions_round2.json' with { type: 'json' };
 
-    // --- ELEMENTS ---
-    const startRound1Btn = document.getElementById('start-round1-btn');
-    const startRound2Btn = document.getElementById('start-round2-btn');
-    const stopQuizBtn = document.getElementById('stop-quiz-btn');
-    const adminTimer = document.getElementById('admin-timer');
-    const timerDisplay = document.getElementById('timer-display');
-    const quizStatus = document.getElementById('quiz-status');
-    const roundSelect = document.getElementById('round-select');
-    const leaderboardBody = document.getElementById('leaderboard-body');
-    let leaderboardInterval;
-    let adminTimerInterval;
-    let quizTimeLeft = QUIZ_DURATION_MINUTES * 60;
-    let currentAdminRound = 1; // Default to Round 1 for dropdown
 
-    // --- HELPER FUNCTIONS ---
-    // Format time (seconds to MM:SS)
-    function formatTime(seconds) {
-        const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
-        const secs = (seconds % 60).toString().padStart(2, '0');
-        return `${mins}:${secs}`;
-    }
+// Helper to get questions by round
+function getQuestionsForRound(round) {
+    return round === 1 ? questionsRound1 : (round === 2 ? questionsRound2 : []);
+}
 
-    // Format timestamp to readable time
-    function formatTimeStamp(timestamp) {
-        if (!timestamp) return 'N/A';
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
 
-    // Format time taken (seconds to MM:SS)
-    function formatTimeTaken(seconds) {
-        if (seconds === null || seconds < 0) return 'N/A';
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
+// Helper to ensure tables exist and have all required columns
+const ensureTables = async () => {
+    // Create tables if they don't exist (include round in Scores)
+    await sql`CREATE TABLE IF NOT EXISTS Scores (
+        id SERIAL PRIMARY KEY,
+        round INT NOT NULL,
+        team_name VARCHAR(255) NOT NULL,
+        score INT NOT NULL DEFAULT 0,
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(round, team_name)
+    );`;
+    
+    await sql`CREATE TABLE IF NOT EXISTS QuizStatus (
+        id INT PRIMARY KEY,
+        started BOOLEAN NOT NULL DEFAULT FALSE,
+        current_round INT DEFAULT 0
+    );`;
 
-    // Stop admin timer
-    function stopAdminTimer() {
-        if (adminTimerInterval) {
-            clearInterval(adminTimerInterval);
-            adminTimerInterval = null;
-        }
-        timerDisplay.textContent = 'Quiz Stopped';
-    }
 
-    // Start admin timer countdown
-    function startAdminTimer() {
-        quizTimeLeft = QUIZ_DURATION_MINUTES * 60;
-        adminTimerInterval = setInterval(() => {
-            quizTimeLeft--;
-            timerDisplay.textContent = `Time Left: ${formatTime(quizTimeLeft)}`;
-            
-            if (quizTimeLeft <= 0) {
-                clearInterval(adminTimerInterval);
-                timerDisplay.textContent = 'Quiz Ended';
-                quizStatus.textContent = `Quiz Status: Ended | Current Round: ${currentAdminRound}`;
-                stopQuizBtn.classList.add('hidden');
-                startRound1Btn.disabled = false;
-                startRound2Btn.disabled = false;
-            }
-        }, 1000);
-    }
+    // Add missing columns (robust migration)
+    const columnsToAdd = [
+        { table: 'Scores', column: 'enter_time', type: 'TIMESTAMP' },
+        { table: 'Scores', column: 'exit_time', type: 'TIMESTAMP' },
+        { table: 'Scores', column: 'time_taken', type: 'INT' },
+        { table: 'QuizStatus', column: 'current_round', type: 'INT DEFAULT 0' }
+    ];
 
-    // Fetch and display leaderboard for specific round (updated for new API format)
-    async function fetchLeaderboard(targetRound = currentAdminRound) {
+
+    for (const { table, column, type } of columnsToAdd) {
         try {
-            const response = await fetch(`/api/quiz?action=leaderboard&round=${targetRound}`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            const result = await response.json();
-            
-            // Handle new API structure: { data: rows, round: X } or { error: '...' }
-            if (result.error) {
-                console.error(`API Error for Round ${targetRound}:`, result.error, result.details);
-                leaderboardBody.innerHTML = `<tr><td colspan="6">Error loading Round ${targetRound}: ${result.error}</td></tr>`;
-                return;
-            }
-            
-            const data = result.data || []; // Extract data array
-            console.log(`Leaderboard fetched for Round ${result.round || targetRound}: ${data.length} entries`); // Debug log
-            
-            leaderboardBody.innerHTML = ''; // Clear old data
-
-            if (data.length === 0) {
-                leaderboardBody.innerHTML = `<tr><td colspan="6">No data for this round yet (Round ${result.round || targetRound}).</td></tr>`;
-                return;
-            }
-
-            data.forEach((entry, index) => {
-                const row = leaderboardBody.insertRow();
-                let scoreDisplay = entry.score;
-                let enterDisplay = formatTimeStamp(entry.enter_time);
-                let exitDisplay = formatTimeStamp(entry.exit_time);
-                let timeDisplay = formatTimeTaken(entry.time_taken);
-                
-                if (entry.score < 0) {
-                    scoreDisplay = 'Disqualified';
-                    enterDisplay = 'Disqualified';
-                    exitDisplay = 'Disqualified';
-                    timeDisplay = 'Disqualified';
-                    row.classList.add('disqualified');
+            const alterSQL = `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`;
+            await sql.unsafe(alterSQL);
+        } catch (error) {
+            console.error(`Migration warning for ${table}.${column}:`, error.message);
+            // If IF NOT EXISTS not supported, try without and catch
+            try {
+                const basicSQL = `ALTER TABLE ${table} ADD COLUMN ${column} ${type}`;
+                await sql.unsafe(basicSQL);
+            } catch (colError) {
+                if (!colError.message.includes('already exists')) {
+                    console.error(`Failed to add ${table}.${column}:`, colError.message);
                 }
-                
-                row.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td>${entry.team_name}</td>
-                    <td>${scoreDisplay}</td>
-                    <td>${enterDisplay}</td>
-                    <td>${exitDisplay}</td>
-                    <td>${timeDisplay}</td>
+            }
+        }
+    }
+
+    // Add unique constraint on (round, team_name) if missing (required for ON CONFLICT)
+    try {
+        await sql`ALTER TABLE Scores ADD CONSTRAINT IF NOT EXISTS unique_round_team UNIQUE (round, team_name);`;
+    } catch (constraintError) {
+        console.error('Constraint migration warning:', constraintError.message);
+        // Fallback: Try without IF NOT EXISTS
+        try {
+            await sql.unsafe('ALTER TABLE Scores ADD CONSTRAINT unique_round_team UNIQUE (round, team_name);');
+        } catch (fallbackError) {
+            if (!fallbackError.message.includes('already exists') && !fallbackError.message.includes('duplicate')) {
+                console.error('Failed to add unique constraint:', fallbackError.message);
+            } else {
+                console.log('Unique constraint already exists.');
+            }
+        }
+    }
+
+    // Set safe defaults for time columns (prevents query NULL issues)
+    try {
+        await sql`UPDATE Scores SET time_taken = 0 WHERE time_taken IS NULL;`;
+        await sql`UPDATE Scores SET enter_time = submitted_at WHERE enter_time IS NULL;`;
+        await sql`UPDATE Scores SET exit_time = submitted_at WHERE exit_time IS NULL;`;
+    } catch (defaultError) {
+        console.log('Time defaults already set or no data:', defaultError.message);
+    }
+
+    // Ensure QuizStatus default row
+    await sql`INSERT INTO QuizStatus (id, started, current_round) VALUES (1, FALSE, 0) ON CONFLICT (id) DO NOTHING;`;
+
+
+    // Verify and backfill round column if missing (post-migration check)
+    try {
+        const { rows } = await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'Scores' AND column_name = 'round';`;
+        if (rows.length === 0) {
+            console.error('Critical: round column missing – adding now.');
+            // Emergency add (since migration might have skipped)
+            await sql.unsafe('ALTER TABLE Scores ADD COLUMN round INT NOT NULL DEFAULT 1;');
+            // Backfill old rows
+            await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;
+        } else {
+            // If column exists but some rows NULL, backfill
+            const { rows: nullCheck } = await sql`SELECT COUNT(*) as null_count FROM Scores WHERE round IS NULL;`;
+            if (parseInt(nullCheck[0].null_count) > 0) {
+                await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;
+                console.log('Backfilled NULL rounds to 1.');
+            }
+        }
+    } catch (error) {
+        console.error('Error in round column verification/backfill:', error);
+    }
+};
+
+
+export default async function handler(req, res) {
+    const { action, round: queryRound } = req.query;
+
+
+    try {
+        await ensureTables(); // Ensure tables and columns
+
+
+        const targetRound = parseInt(queryRound) || 0;
+
+
+        // --- ADMIN: Start Round 1 ---
+        if (req.method === 'POST' && action === 'start' && queryRound === '1') {
+            try {
+                await sql`DELETE FROM Scores WHERE round = 1;`;
+                await sql`UPDATE QuizStatus SET started = TRUE, current_round = 1 WHERE id = 1;`;
+                return res.status(200).json({ message: 'Round 1 started and scores reset.', currentRound: 1 });
+            } catch (error) {
+                console.error('Start Round 1 error:', error);
+                return res.status(500).json({ error: 'Failed to start Round 1' });
+            }
+        }
+
+
+        // --- ADMIN: Start Round 2 ---
+        if (req.method === 'POST' && action === 'start' && queryRound === '2') {
+            try {
+                await sql`DELETE FROM Scores WHERE round = 2;`;
+                await sql`UPDATE QuizStatus SET started = TRUE, current_round = 2 WHERE id = 1;`;
+                return res.status(200).json({ message: 'Round 2 started and scores reset.', currentRound: 2 });
+            } catch (error) {
+                console.error('Start Round 2 error:', error);
+                return res.status(500).json({ error: 'Failed to start Round 2' });
+            }
+        }
+
+
+        // --- ADMIN: Stop Current Round ---
+        if (req.method === 'POST' && action === 'stop') {
+            const { rows: statusRows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
+            const currentRound = statusRows[0]?.current_round || 0;
+            if (currentRound > 0) {
+                await sql`UPDATE QuizStatus SET started = FALSE WHERE id = 1;`;
+                return res.status(200).json({ message: `Round ${currentRound} stopped.`, currentRound });
+            }
+            return res.status(400).json({ message: 'No active round to stop.' });
+        }
+
+
+        // --- USER: Check Quiz Status ---
+        if (req.method === 'GET' && action === 'status') {
+            const { rows } = await sql`SELECT started, current_round FROM QuizStatus WHERE id = 1;`;
+            const status = rows.length > 0 ? rows[0] : { started: false, current_round: 0 };
+            return res.status(200).json({ quizStarted: status.started, currentRound: status.current_round });
+        }
+
+
+        // --- USER: Submit Score ---
+        if (req.method === 'POST' && action === 'submit') {
+            const { teamName, answers, enterTime, exitTime, round } = req.body;
+            const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
+            const currentRound = rows[0]?.current_round || 0;
+            if (currentRound < 1 || currentRound > 2) {
+                return res.status(400).json({ error: `No active round (current: ${currentRound}) for submission` });
+            }
+            
+            const now = Date.now();
+            const fallbackEnter = enterTime || (now - 120000);
+            const fallbackExit = exitTime || now;
+            const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
+            
+            // Calculate score using imported questions
+            const questions = getQuestionsForRound(currentRound);
+            let score = 0;
+            if (answers && questions.length > 0) {
+                questions.forEach((q, index) => {
+                    if (answers[index] !== undefined && answers[index] === q.answer) {
+                        score++;
+                    }
+                });
+            } else {
+                console.warn(`Scoring warning: Questions empty or no answers for Round ${currentRound}`);
+            }
+            
+            try {
+                await sql`
+                    INSERT INTO Scores (round, team_name, score, enter_time, exit_time, time_taken)
+                    VALUES (${currentRound}, ${teamName}, ${score}, to_timestamp(${fallbackEnter / 1000}), to_timestamp(${fallbackExit / 1000}), ${timeTaken})
+                    ON CONFLICT (round, team_name) DO UPDATE SET
+                        score = EXCLUDED.score,
+                        enter_time = EXCLUDED.enter_time,
+                        exit_time = EXCLUDED.exit_time,
+                        time_taken = EXCLUDED.time_taken
                 `;
-            });
-        } catch (error) {
-            console.error('Error fetching leaderboard for Round ' + targetRound + ':', error);
-            leaderboardBody.innerHTML = `<tr><td colspan="6">Could not load leaderboard for Round ${targetRound}.</td></tr>`;
+                console.log(`Insert success: Team ${teamName}, Round ${currentRound}, Score ${score}`); // Log for debugging
+                return res.status(200).json({ message: `Score ${score} submitted for Round ${currentRound}. Questions loaded: ${questions.length}` });
+            } catch (insertError) {
+                console.error('Insert error:', insertError);
+                return res.status(500).json({ error: 'Failed to save score', details: insertError.message });
+            }
         }
-    }
-
-    // Check initial quiz status
-    async function checkQuizStatus() {
-        try {
-            const response = await fetch('/api/quiz?action=status');
-            const data = await response.json();
-            const statusText = data.quizStarted ? 'Active' : 'Not Started';
-            const roundText = data.currentRound > 0 ? `Round ${data.currentRound}` : 'None';
-            quizStatus.textContent = `Quiz Status: ${statusText} | Current Round: ${roundText}`;
+        
+        // --- USER: Disqualify ---
+        if (req.method === 'POST' && action === 'disqualify') {
+            const { teamName, enterTime, round } = req.body;
+            const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
+            const currentRound = rows[0]?.current_round || 0;
+            if (currentRound < 1 || currentRound > 2) {
+                return res.status(400).json({ error: `No active round (current: ${currentRound}) for disqualification` });
+            }
             
-            if (data.quizStarted && data.currentRound > 0) {
-                currentAdminRound = data.currentRound;
-                roundSelect.value = data.currentRound;
-                startRound1Btn.disabled = true;
-                startRound2Btn.disabled = true;
-                stopQuizBtn.classList.remove('hidden');
-                adminTimer.classList.remove('hidden');
-                startAdminTimer();
-            } else {
-                startRound1Btn.disabled = false;
-                startRound2Btn.disabled = false;
-                stopQuizBtn.classList.add('hidden');
-                adminTimer.classList.add('hidden');
-                if (adminTimerInterval) {
-                    stopAdminTimer();
-                }
+            const exitTime = Date.now();
+            const timeTaken = enterTime ? Math.floor((exitTime - enterTime) / 1000) : 0;
+            
+            try {
+                await sql`
+                    INSERT INTO Scores (round, team_name, score, enter_time, exit_time, time_taken)
+                    VALUES (${currentRound}, ${teamName}, -1, to_timestamp(${(enterTime || (exitTime - 60000)) / 1000}), NOW(), ${timeTaken})
+                    ON CONFLICT (round, team_name) DO UPDATE SET
+                        score = -1,
+                        exit_time = NOW(),
+                        time_taken = ${timeTaken}
+                `;
+                console.log(`Disqualify success: Team ${teamName}, Round ${currentRound}`);
+                return res.status(200).json({ message: `Disqualified for Round ${currentRound}` });
+            } catch (error) {
+                console.error('Disqualify error:', error);
+                return res.status(500).json({ error: 'Failed to disqualify', details: error.message });
             }
-        } catch (error) {
-            console.error('Error checking initial status:', error);
-            quizStatus.textContent = 'Quiz Status: Unknown | Current Round: None';
         }
+
+
+        // --- PUBLIC/ADMIN: Get Leaderboard (filtered by round) ---
+        if (req.method === 'GET' && action === 'leaderboard') {
+            let queryRound;
+            if (targetRound === 0) {
+                const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
+                queryRound = rows[0]?.current_round || 0;
+            } else {
+                queryRound = targetRound;
+            }
+            if (queryRound < 1 || queryRound > 2) {
+                console.log(`No round for leaderboard: ${queryRound}`);
+                return res.status(200).json({ data: [], round: queryRound, message: 'No active round' });
+            }
+            
+            try {
+                const { rows } = await sql`
+                    SELECT team_name, score, enter_time, exit_time, time_taken, submitted_at
+                    FROM Scores
+                    WHERE round = ${queryRound}
+                    ORDER BY 
+                        CASE WHEN score < 0 THEN -999 ELSE score END DESC,
+                        CASE WHEN score < 0 THEN NULL ELSE time_taken END ASC NULLS LAST,
+                        submitted_at ASC
+                `;
+                console.log(`Leaderboard fetched for Round ${queryRound}: ${rows.length} rows`);
+                return res.status(200).json({ data: rows, round: queryRound });
+            } catch (error) {
+                console.error('Leaderboard query error:', error);
+                return res.status(500).json({ error: 'Query failed', details: error.message, round: queryRound });
+            }
+        }
+
+
+        // If no route matches
+        return res.status(404).json({ message: 'Not Found' });
+
+
+    } catch (error) {
+        console.error('API Error:', error);
+        return res.status(500).json({ message: 'Internal Server Error', error: error.message });
     }
-
-    // --- EVENT LISTENERS ---
-    // Start Round 1
-    startRound1Btn.addEventListener('click', async () => {
-        if (!confirm('Start Round 1? This will reset Round 1 scores only.')) return;
-        try {
-            const response = await fetch('/api/quiz?action=start&round=1', { method: 'POST' });
-            const result = await response.json();
-            if (response.ok && !result.error) {
-                alert('Round 1 started!');
-                checkQuizStatus(); // Update UI
-                fetchLeaderboard(1); // Show Round 1 leaderboard
-            } else {
-                alert(result.error || 'Failed to start Round 1.');
-            }
-        } catch (error) {
-            console.error('Error starting Round 1:', error);
-            alert('Error starting Round 1.');
-        }
-    });
-
-    // Start Round 2
-    startRound2Btn.addEventListener('click', async () => {
-        if (!confirm('Start Round 2? This will reset Round 2 scores only.')) return;
-        try {
-            const response = await fetch('/api/quiz?action=start&round=2', { method: 'POST' });
-            const result = await response.json();
-            if (response.ok && !result.error) {
-                alert('Round 2 started!');
-                checkQuizStatus(); // Update UI
-                fetchLeaderboard(2); // Show Round 2 leaderboard
-            } else {
-                alert(result.error || 'Failed to start Round 2.');
-            }
-        } catch (error) {
-            console.error('Error starting Round 2:', error);
-            alert('Error starting Round 2.');
-        }
-    });
-
-    // Stop Current Round
-    stopQuizBtn.addEventListener('click', async () => {
-        if (!confirm('Stop current round? Active participants can finish.')) return;
-        try {
-            const response = await fetch('/api/quiz?action=stop', { method: 'POST' });
-            const result = await response.json();
-            if (response.ok && !result.error) {
-                alert('Current round stopped.');
-                checkQuizStatus(); // Update UI
-                fetchLeaderboard(currentAdminRound); // Refresh current view
-            } else {
-                alert(result.error || 'Failed to stop round.');
-            }
-        } catch (error) {
-            console.error('Error stopping round:', error);
-            alert('Error stopping round.');
-        }
-    });
-
-    // Round Select Change (for admin leaderboard)
-    roundSelect.addEventListener('change', (e) => {
-        currentAdminRound = parseInt(e.target.value);
-        fetchLeaderboard(currentAdminRound);
-    });
-
-    // --- INITIALIZATION ---
-    checkQuizStatus();
-    if (!leaderboardInterval) {
-        leaderboardInterval = setInterval(() => fetchLeaderboard(currentAdminRound), 5000);
-    }
-    fetchLeaderboard(1); // Initial load for Round 1
-});
+}
