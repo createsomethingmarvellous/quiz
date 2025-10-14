@@ -11,10 +11,12 @@ function getQuestionsByRound(round) {
 
 // Helper to ensure tables exist and have all required columns
 const ensureTables = async () => {
+    console.log('Running ensureTables migration...'); // Debug log
+
     // Create tables if they don't exist
     await sql`CREATE TABLE IF NOT EXISTS Scores (
         id SERIAL PRIMARY KEY,
-        team_name VARCHAR(255) NOT NULL UNIQUE,
+        team_name VARCHAR(255) NOT NULL,
         round INT NOT NULL DEFAULT 1,
         score INT NOT NULL DEFAULT 0,
         submitted_at TIMESTAMP DEFAULT NOW()
@@ -26,67 +28,102 @@ const ensureTables = async () => {
         current_round INT NOT NULL DEFAULT 0
     );`;
 
-    // Add missing columns if they don't exist (migration)
-    try {
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS round INT DEFAULT 1;`;
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS enter_time TIMESTAMP;`;
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS exit_time TIMESTAMP;`;
-        await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS time_taken INT;`;
-        await sql`ALTER TABLE QuizStatus ADD COLUMN IF NOT EXISTS current_round INT DEFAULT 0;`;
-    } catch (error) {
-        // Fallback for older PostgreSQL
-        const columnsToAdd = [
-            'ALTER TABLE Scores ADD COLUMN round INT DEFAULT 1',
-            'ALTER TABLE Scores ADD COLUMN enter_time TIMESTAMP',
-            'ALTER TABLE Scores ADD COLUMN exit_time TIMESTAMP',
-            'ALTER TABLE Scores ADD COLUMN time_taken INT',
-            'ALTER TABLE QuizStatus ADD COLUMN current_round INT DEFAULT 0'
-        ];
-        
-        for (const columnSQL of columnsToAdd) {
-            try {
-                await sql.unsafe(columnSQL);
-            } catch (colError) {
-                console.log('Column may already exist:', colError.message);
-            }
+    // Force-add missing columns (more aggressive migration)
+    const scoreColumns = [
+        { name: 'round', type: 'INT DEFAULT 1' },
+        { name: 'enter_time', type: 'TIMESTAMP' },
+        { name: 'exit_time', type: 'TIMESTAMP' },
+        { name: 'time_taken', type: 'INT' }
+    ];
+    
+    const statusColumns = [
+        { name: 'current_round', type: 'INT DEFAULT 0' }
+    ];
+
+    // Add columns to Scores
+    for (const col of scoreColumns) {
+        try {
+            await sql`ALTER TABLE Scores ADD COLUMN IF NOT EXISTS ${sql.raw(col.name)} ${sql.raw(col.type)};`;
+            console.log(`Added/migrated Scores.${col.name}`); // Debug
+        } catch (error) {
+            console.log(`Scores.${col.name} already exists or migration skipped:`, error.message); // Ignore if exists
         }
     }
 
-    // Ensure QuizStatus has a default row
-    await sql`INSERT INTO QuizStatus (id, started, current_round) VALUES (1, FALSE, 0) ON CONFLICT (id) DO UPDATE SET started = FALSE, current_round = 0;`;
+    // Add columns to QuizStatus
+    for (const col of statusColumns) {
+        try {
+            await sql`ALTER TABLE QuizStatus ADD COLUMN IF NOT EXISTS ${sql.raw(col.name)} ${sql.raw(col.type)};`;
+            console.log(`Added/migrated QuizStatus.${col.name}`); // Debug
+        } catch (error) {
+            console.log(`QuizStatus.${col.name} already exists or migration skipped:`, error.message);
+        }
+    }
+
+    // Ensure QuizStatus row id=1 exists with defaults (FALSE, 0)
+    await sql`
+        INSERT INTO QuizStatus (id, started, current_round) 
+        VALUES (1, FALSE, 0) 
+        ON CONFLICT (id) DO UPDATE SET 
+            started = EXCLUDED.started, 
+            current_round = EXCLUDED.current_round
+    `;
+    console.log('QuizStatus row ensured (id=1).'); // Debug
 };
 
 export default async function handler(req, res) {
-    const { action, round } = req.query; // round param for leaderboard filtering
-    const selectedRound = parseInt(round) || 1; // Default to round 1 if not specified
+    const { action, round: queryRound } = req.query;
+    const selectedRound = parseInt(queryRound) || 1;
 
     try {
-        await ensureTables();
+        await ensureTables(); // Run migration on every request
 
         // --- ADMIN: Start Round 1 ---
         if (req.method === 'POST' && action === 'start' && selectedRound === 1) {
+            console.log('Starting Round 1...'); // Debug
             await sql`DELETE FROM Scores WHERE round = 1;`; // Reset only Round 1
-            await sql`UPDATE QuizStatus SET started = TRUE, current_round = 1 WHERE id = 1;`;
+            await sql`
+                INSERT INTO QuizStatus (id, started, current_round) 
+                VALUES (1, TRUE, 1) 
+                ON CONFLICT (id) DO UPDATE SET 
+                    started = TRUE, 
+                    current_round = 1
+            `;
+            console.log('Round 1 started and updated QuizStatus.'); // Debug
             return res.status(200).json({ message: 'Round 1 started and reset.' });
         }
 
         // --- ADMIN: Start Round 2 ---
         if (req.method === 'POST' && action === 'start' && selectedRound === 2) {
+            console.log('Starting Round 2...'); // Debug
             await sql`DELETE FROM Scores WHERE round = 2;`; // Reset only Round 2
-            await sql`UPDATE QuizStatus SET started = TRUE, current_round = 2 WHERE id = 1;`;
+            await sql`
+                INSERT INTO QuizStatus (id, started, current_round) 
+                VALUES (1, TRUE, 2) 
+                ON CONFLICT (id) DO UPDATE SET 
+                    started = TRUE, 
+                    current_round = 2
+            `;
+            console.log('Round 2 started and updated QuizStatus.'); // Debug
             return res.status(200).json({ message: 'Round 2 started and reset.' });
         }
 
-        // --- ADMIN: Stop Quiz (applies to current round) ---
+        // --- ADMIN: Stop Quiz ---
         if (req.method === 'POST' && action === 'stop') {
-            await sql`UPDATE QuizStatus SET started = FALSE WHERE id = 1;`;
+            console.log('Stopping quiz...'); // Debug
+            await sql`
+                UPDATE QuizStatus SET started = FALSE WHERE id = 1
+            `;
+            console.log('Quiz stopped.'); // Debug
             return res.status(200).json({ message: 'Quiz stopped.' });
         }
 
         // --- USER: Check Quiz Status ---
         if (req.method === 'GET' && action === 'status') {
+            console.log('Checking quiz status...'); // Debug
             const { rows } = await sql`SELECT started, current_round FROM QuizStatus WHERE id = 1;`;
             const status = rows[0] || { started: false, current_round: 0 };
+            console.log('Status query result:', status); // Debug
             return res.status(200).json({ 
                 quizStarted: status.started && status.current_round > 0, 
                 currentRound: status.current_round 
@@ -98,10 +135,11 @@ export default async function handler(req, res) {
             const { rows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
             const currentRound = rows[0]?.current_round || 1;
             const questions = getQuestionsByRound(currentRound);
+            console.log(`Sending questions for round ${currentRound}`); // Debug
             return res.status(200).json(questions);
         }
 
-        // --- USER: Submit Score (for current round) ---
+        // --- USER: Submit Score ---
         if (req.method === 'POST' && action === 'submit') {
             const { rows: statusRows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
             const currentRound = statusRows[0]?.current_round || 1;
@@ -133,7 +171,7 @@ export default async function handler(req, res) {
             return res.status(200).json({ message: 'Score submitted.' });
         }
         
-        // --- USER: Disqualify (for current round) ---
+        // --- USER: Disqualify ---
         if (req.method === 'POST' && action === 'disqualify') {
             const { rows: statusRows } = await sql`SELECT current_round FROM QuizStatus WHERE id = 1;`;
             const currentRound = statusRows[0]?.current_round || 1;
@@ -152,7 +190,7 @@ export default async function handler(req, res) {
             return res.status(200).json({ message: 'User disqualified.' });
         }
 
-        // --- PUBLIC: Get Leaderboard (filtered by round param) ---
+        // --- PUBLIC: Get Leaderboard ---
         if (req.method === 'GET' && action === 'leaderboard') {
             try {
                 const { rows } = await sql`
@@ -171,7 +209,6 @@ export default async function handler(req, res) {
             }
         }
 
-        // If no route matches
         return res.status(404).json({ message: 'Not Found' });
 
     } catch (error) {
