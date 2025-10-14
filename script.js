@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const teamNameContainer = document.getElementById('team-name-container');
     const waitingRoom = document.getElementById('waiting-room');
     const quizContainer = document.getElementById('quiz-container');
+    const roundDisplay = document.getElementById('round-display');
     const finishedContainer = document.getElementById('finished-container');
     const disqualifiedContainer = document.getElementById('disqualified-container');
     const timerEl = document.getElementById('timer');
@@ -16,7 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- STATE ---
     let teamName = '';
-    let enterTime = null; // New: Track when quiz starts
+    let currentRound = 0;
+    let enterTime = null;
     let quizCheckInterval;
     let timerInterval;
     let hasBeenDisqualified = false;
@@ -39,7 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const response = await fetch('/api/quiz?action=status');
                 const data = await response.json();
-                if (data.quizStarted) {
+                if (data.quizStarted && data.currentRound > 0) {
+                    currentRound = data.currentRound;
                     clearInterval(quizCheckInterval);
                     startQuiz();
                 }
@@ -54,16 +57,19 @@ document.addEventListener('DOMContentLoaded', () => {
         waitingRoom.classList.add('hidden');
         quizContainer.classList.remove('hidden');
         
-        enterTime = Date.now(); // New: Record enter time
+        enterTime = Date.now();
+        roundDisplay.textContent = `Round ${currentRound}`; // Show round
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         try {
-            const response = await fetch('questions.json');
+            // Fetch questions for current round
+            const response = await fetch(`/api/quiz?action=questions&round=${currentRound}`);
             const questions = await response.json();
             renderQuestions(questions);
             startTimer(QUIZ_DURATION_MINUTES * 60);
         } catch (error) {
             console.error('Error fetching questions:', error);
+            alert('Error loading questions. Please refresh.');
         }
     }
     
@@ -94,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (timeLeft <= 0) {
                 clearInterval(timerInterval);
-                submitQuiz(true); // Auto-submit
+                submitQuiz(true);
             }
         }, 1000);
     }
@@ -111,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearInterval(timerInterval);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-        const exitTime = Date.now(); // New: Record exit time
+        const exitTime = Date.now();
         const formData = new FormData(quizForm);
         const answers = {};
         for (const [key, value] of formData.entries()) {
@@ -119,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            await fetch('/api/quiz?action=submit', {
+            await fetch(`/api/quiz?action=submit&round=${currentRound}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ teamName, answers, enterTime, exitTime }),
@@ -132,17 +138,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 7. Anti-Cheat: Tab Change Detection
+    // 7. Anti-Cheat
     async function handleVisibilityChange() {
         if (document.hidden && !hasBeenDisqualified && enterTime) {
             hasBeenDisqualified = true;
             clearInterval(timerInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             
-            const exitTime = Date.now(); // New: Record exit time on disqualification
+            const exitTime = Date.now();
             
             try {
-                await fetch('/api/quiz?action=disqualify', {
+                await fetch(`/api/quiz?action=disqualify&round=${currentRound}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ teamName, enterTime }),

@@ -11,17 +11,25 @@
         <h1>Admin Dashboard</h1>
         
         <div id="quiz-control">
-            <button id="start-quiz-btn">Start New Quiz (Resets Leaderboard)</button>
-            <button id="stop-quiz-btn" class="hidden">Stop Quiz</button>
+            <h3>Start Quiz Rounds</h3>
+            <button id="start-round1-btn">Start Round 1 (Resets Round 1 Scores)</button>
+            <button id="start-round2-btn">Start Round 2 (Resets Round 2 Scores)</button>
+            <button id="stop-quiz-btn" class="hidden">Stop Current Round</button>
+            
             <div id="admin-timer" class="hidden">
-                <h3>Quiz Timer (for Participants)</h3>
+                <h3>Current Round Timer (for Participants)</h3>
                 <div id="timer-display">Time Left: 02:00</div>
             </div>
-            <p id="quiz-status">Quiz Status: Not Started</p>
+            <p id="quiz-status">Quiz Status: Not Started (Round 0)</p>
         </div>
         
         <div id="leaderboard-container" class="admin-leaderboard">
             <h2>Live Leaderboard</h2>
+            <label for="round-selector">Select Round: </label>
+            <select id="round-selector">
+                <option value="1">Round 1</option>
+                <option value="2">Round 2</option>
+            </select>
             <table id="leaderboard-table">
                 <thead>
                     <tr>

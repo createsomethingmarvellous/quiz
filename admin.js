@@ -1,34 +1,34 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- CONFIGURATION ---
-    const QUIZ_DURATION_MINUTES = 2; // Matches participant duration
+    const QUIZ_DURATION_MINUTES = 2;
 
     // --- ELEMENTS ---
-    const startQuizBtn = document.getElementById('start-quiz-btn');
+    const startRound1Btn = document.getElementById('start-round1-btn');
+    const startRound2Btn = document.getElementById('start-round2-btn');
     const stopQuizBtn = document.getElementById('stop-quiz-btn');
+    const roundSelector = document.getElementById('round-selector');
     const adminTimer = document.getElementById('admin-timer');
     const timerDisplay = document.getElementById('timer-display');
     const quizStatus = document.getElementById('quiz-status');
     const leaderboardBody = document.getElementById('leaderboard-body');
     let leaderboardInterval;
     let adminTimerInterval;
-    let quizTimeLeft = QUIZ_DURATION_MINUTES * 60; // Start with full time
+    let quizTimeLeft = QUIZ_DURATION_MINUTES * 60;
+    let currentSelectedRound = 1; // Default to Round 1 for leaderboard
 
     // --- HELPER FUNCTIONS ---
-    // Format time (seconds to MM:SS)
     function formatTime(seconds) {
         const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
         const secs = (seconds % 60).toString().padStart(2, '0');
         return `${mins}:${secs}`;
     }
 
-    // Format timestamp to readable time
     function formatTimeStamp(timestamp) {
         if (!timestamp) return 'N/A';
         const date = new Date(timestamp);
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
-    // Format time taken (seconds to MM:SS)
     function formatTimeTaken(seconds) {
         if (seconds === null || seconds < 0) return 'N/A';
         const mins = Math.floor(seconds / 60);
@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
 
-    // Stop admin timer
     function stopAdminTimer() {
         if (adminTimerInterval) {
             clearInterval(adminTimerInterval);
@@ -45,7 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
         timerDisplay.textContent = 'Quiz Stopped';
     }
 
-    // Start admin timer countdown
     function startAdminTimer() {
         quizTimeLeft = QUIZ_DURATION_MINUTES * 60;
         adminTimerInterval = setInterval(() => {
@@ -54,20 +52,22 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (quizTimeLeft <= 0) {
                 clearInterval(adminTimerInterval);
-                timerDisplay.textContent = 'Quiz Ended';
-                quizStatus.textContent = 'Quiz Status: Ended';
-                stopQuizBtn.classList.add('hidden'); // Hide stop button when ended
+                timerDisplay.textContent = 'Round Ended';
+                quizStatus.textContent = `Quiz Status: Ended (Round ${currentRound})`;
+                stopQuizBtn.classList.add('hidden');
+                startRound1Btn.disabled = false;
+                startRound2Btn.disabled = false;
             }
         }, 1000);
     }
 
-    // Fetch and display leaderboard
-    async function fetchLeaderboard() {
+    // Fetch leaderboard for specific round
+    async function fetchLeaderboard(round) {
         try {
-            const response = await fetch('/api/quiz?action=leaderboard');
+            const response = await fetch(`/api/quiz?action=leaderboard&round=${round}`);
             const data = await response.json();
             
-            leaderboardBody.innerHTML = ''; // Clear old data
+            leaderboardBody.innerHTML = '';
 
             data.forEach((entry, index) => {
                 const row = leaderboardBody.insertRow();
@@ -99,27 +99,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Check initial quiz status (no auto-start)
+    // Check initial quiz status
+    let currentRound = 0;
     async function checkQuizStatus() {
         try {
             const response = await fetch('/api/quiz?action=status');
             const data = await response.json();
-            if (data.quizStarted) {
-                quizStatus.textContent = 'Quiz Status: Active';
-                startQuizBtn.disabled = true;
-                startQuizBtn.textContent = 'Quiz In Progress - Start New One to Reset';
-                stopQuizBtn.classList.remove('hidden'); // Show stop button
+            currentRound = data.currentRound || 0;
+            if (data.quizStarted && currentRound > 0) {
+                quizStatus.textContent = `Quiz Status: Active (Round ${currentRound})`;
+                startRound1Btn.disabled = currentRound === 1;
+                startRound2Btn.disabled = currentRound === 2;
+                stopQuizBtn.classList.remove('hidden');
                 adminTimer.classList.remove('hidden');
-                startAdminTimer(); // Start timer if already active
+                roundSelector.value = currentRound.toString();
+                startAdminTimer();
             } else {
-                quizStatus.textContent = 'Quiz Status: Not Started';
-                startQuizBtn.disabled = false;
-                startQuizBtn.textContent = 'Start New Quiz (Resets Leaderboard)';
-                stopQuizBtn.classList.add('hidden'); // Hide stop button
+                quizStatus.textContent = 'Quiz Status: Not Started (Round 0)';
+                startRound1Btn.disabled = false;
+                startRound2Btn.disabled = false;
+                stopQuizBtn.classList.add('hidden');
                 adminTimer.classList.add('hidden');
-                if (adminTimerInterval) {
-                    stopAdminTimer(); // Stop if running
-                }
+                stopAdminTimer();
             }
         } catch (error) {
             console.error('Error checking initial status:', error);
@@ -128,74 +129,84 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- EVENT LISTENERS ---
-    startQuizBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to start a new quiz? This will delete all current scores and times.')) {
-            return;
-        }
-
+    startRound1Btn.addEventListener('click', async () => {
+        if (!confirm('Start Round 1? This resets Round 1 scores.')) return;
         try {
-            const response = await fetch('/api/quiz?action=start', { method: 'POST' });
+            const response = await fetch('/api/quiz?action=start&round=1', { method: 'POST' });
             if (response.ok) {
-                alert('Quiz started successfully! The waiting room is now open for participants.');
-                
-                // Update UI
-                startQuizBtn.disabled = true;
-                startQuizBtn.textContent = 'Quiz In Progress - Start New One to Reset';
-                quizStatus.textContent = 'Quiz Status: Active';
-                stopQuizBtn.classList.remove('hidden'); // Show stop button
-                adminTimer.classList.remove('hidden');
-                
-                // Start timer and leaderboard refresh
-                startAdminTimer();
-                fetchLeaderboard(); // Fetch immediately
-                
-                if (!leaderboardInterval) {
-                    leaderboardInterval = setInterval(fetchLeaderboard, 5000); // Refresh every 5 seconds
-                }
+                alert('Round 1 started!');
+                currentRound = 1;
+                updateUIForRound(1);
+                roundSelector.value = '1';
+                fetchLeaderboard(1);
             } else {
-                alert('Failed to start quiz.');
+                alert('Failed to start Round 1.');
             }
         } catch (error) {
-            console.error('Error starting quiz:', error);
-            alert('Error starting quiz. Please try again.');
+            console.error('Error starting Round 1:', error);
         }
     });
 
-    // Stop Quiz Button
-    stopQuizBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to stop the quiz? Participants already in the quiz can finish, but new ones won\'t be able to start.')) {
-            return;
+    startRound2Btn.addEventListener('click', async () => {
+        if (!confirm('Start Round 2? This resets Round 2 scores (stops Round 1 if active).')) return;
+        try {
+            const response = await fetch('/api/quiz?action=start&round=2', { method: 'POST' });
+            if (response.ok) {
+                alert('Round 2 started!');
+                currentRound = 2;
+                updateUIForRound(2);
+                roundSelector.value = '2';
+                fetchLeaderboard(2);
+            } else {
+                alert('Failed to start Round 2.');
+            }
+        } catch (error) {
+            console.error('Error starting Round 2:', error);
         }
+    });
 
+    stopQuizBtn.addEventListener('click', async () => {
+        if (!confirm('Stop current round?')) return;
         try {
             const response = await fetch('/api/quiz?action=stop', { method: 'POST' });
             if (response.ok) {
-                alert('Quiz stopped successfully.');
-                
-                // Update UI
+                alert('Current round stopped.');
+                currentRound = 0;
+                updateUIForRound(0);
                 stopAdminTimer();
-                quizStatus.textContent = 'Quiz Status: Stopped';
-                stopQuizBtn.classList.add('hidden'); // Hide stop button
-                startQuizBtn.disabled = false;
-                startQuizBtn.textContent = 'Start New Quiz (Resets Leaderboard)';
             } else {
-                alert('Failed to stop quiz.');
+                alert('Failed to stop.');
             }
         } catch (error) {
             console.error('Error stopping quiz:', error);
-            alert('Error stopping quiz. Please try again.');
         }
     });
 
+    roundSelector.addEventListener('change', (e) => {
+        currentSelectedRound = parseInt(e.target.value);
+        fetchLeaderboard(currentSelectedRound);
+    });
+
+    function updateUIForRound(round) {
+        quizStatus.textContent = round > 0 ? `Quiz Status: Active (Round ${round})` : 'Quiz Status: Not Started (Round 0)';
+        startRound1Btn.disabled = round === 1;
+        startRound2Btn.disabled = round === 2;
+        stopQuizBtn.classList.toggle('hidden', round === 0);
+        if (round > 0) {
+            adminTimer.classList.remove('hidden');
+            startAdminTimer();
+        } else {
+            adminTimer.classList.add('hidden');
+            stopAdminTimer();
+        }
+    }
+
     // --- INITIALIZATION ---
-    // Check if quiz is already active on load
     checkQuizStatus();
     
-    // Always start leaderboard polling (even if not started, shows empty)
     if (!leaderboardInterval) {
-        leaderboardInterval = setInterval(fetchLeaderboard, 5000);
+        leaderboardInterval = setInterval(() => fetchLeaderboard(currentSelectedRound), 5000);
     }
     
-    // Initial leaderboard fetch
-    fetchLeaderboard();
+    fetchLeaderboard(1); // Initial fetch for Round 1
 });
