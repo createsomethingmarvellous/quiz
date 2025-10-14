@@ -1,15 +1,10 @@
 import { sql } from '@vercel/postgres';
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') {
-        return res.status(405).json({ message: 'Method Not Allowed' });
-    }
-    
-    const { teamName } = req.body;
+    if (req.method !== 'POST') return res.status(405).end();
 
-    if (!teamName) {
-        return res.status(400).json({ message: 'Team name required.' });
-    }
+    const { teamName } = req.body;
+    if (!teamName) return res.status(400).json({ error: 'Team name required.' });
 
     try {
         await sql`
@@ -17,19 +12,16 @@ export default async function handler(req, res) {
                 id SERIAL PRIMARY KEY,
                 team_name VARCHAR(255) NOT NULL UNIQUE,
                 score INT NOT NULL,
-                submitted_at TIMESTAMP DEFAULT NOW(),
-                disqualified BOOLEAN DEFAULT FALSE
+                submitted_at TIMESTAMP DEFAULT NOW()
             );
         `;
+        // Set score to -1 for disqualification
         await sql`
-            INSERT INTO Scores (team_name, score, disqualified)
-            VALUES (${teamName}, 0, TRUE)
-            ON CONFLICT (team_name) DO UPDATE
-            SET score = 0, disqualified = TRUE;
+            INSERT INTO Scores (team_name, score) VALUES (${teamName}, -1)
+            ON CONFLICT (team_name) DO UPDATE SET score = -1;
         `;
-        return res.status(200).json({ message: 'User disqualified' });
+        return res.status(200).json({ message: 'User disqualified.' });
     } catch (error) {
-        console.error('Database Error:', error);
-        return res.status(500).json({ message: 'Internal Server Error' });
+        return res.status(500).json({ error: 'Failed to disqualify user.' });
     }
 }

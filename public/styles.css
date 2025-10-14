@@ -17,11 +17,12 @@ body {
     text-align: center;
 }
 .hidden { display: none; }
-input[type="text"], button {
+input, button {
     padding: 10px;
     margin: 10px 5px;
     border-radius: 5px;
     border: 1px solid #ccc;
+    font-size: 1rem;
 }
 button {
     cursor: pointer;
@@ -30,31 +31,12 @@ button {
     border: none;
     padding: 10px 20px;
 }
-#admin-controls button {
-    background-color: #28a745;
-}
-#admin-controls #reset-quiz-btn {
-    background-color: #dc3545;
-}
 #quiz-form { text-align: left; }
 .question { margin-bottom: 1.5rem; }
 .options label { display: block; margin: 0.5rem 0; }
-#leaderboard-table {
-    width: 100%;
-    margin-top: 1rem;
-    border-collapse: collapse;
-}
-#leaderboard-table th, #leaderboard-table td {
-    border: 1px solid #ddd;
-    padding: 8px;
-}
+#leaderboard-table { width: 100%; margin-top: 1rem; border-collapse: collapse; }
+#leaderboard-table th, #leaderboard-table td { border: 1px solid #ddd; padding: 8px; }
 #leaderboard-table th { background-color: #f2f2f2; }
-#timer-container {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #dc3545;
-    margin-bottom: 1rem;
-}
-#disqualified-container h1 {
-    color: #dc3545;
-}
+#timer { font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem; color: #dc3545; }
+#controls { margin-bottom: 2rem; }
+#status { font-weight: bold; }
