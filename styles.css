@@ -38,9 +38,18 @@ button {
     width: auto;
     padding: 12px 25px;
     transition: background-color 0.2s;
+    margin: 5px;
 }
 
 button:hover:not(:disabled) { background-color: #0056b3; }
+
+#stop-quiz-btn {
+    background-color: #dc3545; /* Red for stop/warning */
+}
+
+#stop-quiz-btn:hover:not(:disabled) { 
+    background-color: #c82333; 
+}
 
 button:disabled {
     background-color: #6c757d;

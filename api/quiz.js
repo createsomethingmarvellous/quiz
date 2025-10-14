@@ -13,7 +13,7 @@ const ensureTables = async () => {
     
     await sql`CREATE TABLE IF NOT EXISTS QuizStatus (
         id INT PRIMARY KEY,
-        started BOOLEAN NOT NULL
+        started BOOLEAN NOT NULL DEFAULT FALSE
     );`;
 
     // Add missing columns if they don't exist (for migration)
@@ -38,6 +38,9 @@ const ensureTables = async () => {
             }
         }
     }
+
+    // Ensure QuizStatus has a default row
+    await sql`INSERT INTO QuizStatus (id, started) VALUES (1, FALSE) ON CONFLICT (id) DO NOTHING;`;
 };
 
 export default async function handler(req, res) {
@@ -52,6 +55,12 @@ export default async function handler(req, res) {
             await sql`DELETE FROM QuizStatus WHERE id = 1;`; // Reset status
             await sql`INSERT INTO QuizStatus (id, started) VALUES (1, TRUE);`;
             return res.status(200).json({ message: 'Quiz started and scores reset.' });
+        }
+
+        // --- ADMIN: Stop Quiz ---
+        if (req.method === 'POST' && action === 'stop') {
+            await sql`UPDATE QuizStatus SET started = FALSE WHERE id = 1;`;
+            return res.status(200).json({ message: 'Quiz stopped.' });
         }
 
         // --- USER: Check Quiz Status ---
@@ -106,16 +115,16 @@ export default async function handler(req, res) {
             return res.status(200).json({ message: 'User disqualified.' });
         }
 
-        // --- PUBLIC: Get Leaderboard (Updated Sorting with Time Tie-Breaker) ---
+        // --- PUBLIC: Get Leaderboard (with tie-breaker sorting) ---
         if (req.method === 'GET' && action === 'leaderboard') {
             try {
                 const { rows } = await sql`
                     SELECT team_name, score, enter_time, exit_time, time_taken
                     FROM Scores
                     ORDER BY 
-                        -- Push disqualified (score < 0) to the end by treating their score as very low
+                        -- Push disqualified (score < 0) to the end
                         CASE WHEN score < 0 THEN -999 ELSE score END DESC,
-                        -- For non-disqualified ties: fastest time first (time_taken ASC, NULLs last)
+                        -- For non-disqualified ties: fastest time first
                         CASE WHEN score < 0 THEN NULL ELSE time_taken END ASC NULLS LAST,
                         -- Final tie-breaker: earlier submission first
                         submitted_at ASC
