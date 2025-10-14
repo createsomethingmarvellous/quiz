@@ -171,10 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
             console.log('Backend correction result:', result.message); // e.g., "Score 2 submitted"
 
-            // Parse real score from backend (after correction)
-            const scoreMatch = result.message.match(/Score (\d+) submitted/);
-            const score = scoreMatch ? scoreMatch[1] : 'Calculated';
-            alert(isAutoSubmit ? `Time's up! Auto-submitted with score: ${score}` : `Submitted with score: ${score}`);
+            // Generic success message (no score shown)
+            alert(isAutoSubmit ? "Time's up! Quiz submitted." : "Submitted successfully!");
             
         } catch (error) {
             console.error('Error submitting answers for correction:', error);
@@ -210,4 +208,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
-    
