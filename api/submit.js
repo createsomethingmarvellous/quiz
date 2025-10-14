@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import questions from '../public/questions.json' with { type: 'json' };
+import questions from './public/questions.json' with { type: 'json' };
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).end();
