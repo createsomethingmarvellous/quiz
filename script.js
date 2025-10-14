@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let quizCheckInterval;
     let timerInterval;
     let hasBeenDisqualified = false;
+    let questions = []; // Store loaded questions for answer collection
     
     // 1. Join Quiz
     joinBtn.addEventListener('click', () => {
@@ -64,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // Fetch round-specific questions
             const questionsResponse = await fetch(`questions_round${currentRound}.json`);
-            const questions = await questionsResponse.json();
+            questions = await questionsResponse.json(); // Store globally for scoring
             renderQuestions(questions);
             startTimer(QUIZ_DURATION_MINUTES * 60);
         } catch (error) {
@@ -73,8 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // 4. Render Questions
+    // 4. Render Questions (FIX: No 'required' to allow blanks/partial)
     function renderQuestions(questions) {
+        quizForm.innerHTML = ''; // Clear form
         questions.forEach((q, index) => {
             const questionDiv = document.createElement('div');
             questionDiv.className = 'question';
@@ -82,14 +84,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const optionsDiv = document.createElement('div');
             optionsDiv.className = 'options';
             q.options.forEach((option, i) => {
-                optionsDiv.innerHTML += `<label><input type="radio" name="q${index}" value="${i}" required> ${option}</label>`;
+                // FIX: Remove 'required' – allows blanks for partial scoring
+                optionsDiv.innerHTML += `<label><input type="radio" name="q${index}" value="${i}"> ${option}</label>`;
             });
             questionDiv.appendChild(optionsDiv);
             quizForm.appendChild(questionDiv);
         });
     }
 
-    // 5. Timer
+    // 5. Timer (Unchanged, but calls auto-submit on end)
     function startTimer(duration) {
         let timeLeft = duration;
         timerInterval = setInterval(() => {
@@ -100,15 +103,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (timeLeft <= 0) {
                 clearInterval(timerInterval);
-                submitQuiz(true); // Auto-submit
+                submitQuiz(true); // Auto-submit partial (isAutoSubmit=true)
             }
         }, 1000);
     }
 
-    // 6. Handle Submission
+    // 6. Handle Submission (FIX: Skip validity on auto, collect as array for backend)
     submitBtn.addEventListener('click', () => submitQuiz(false));
 
     async function submitQuiz(isAutoSubmit) {
+        // FIX: Skip form validity check on auto-submit (allows partial/blanks)
         if (!isAutoSubmit && !quizForm.checkValidity()) {
             alert('Please answer all questions.');
             return;
@@ -118,27 +122,56 @@ document.addEventListener('DOMContentLoaded', () => {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
 
         const exitTime = Date.now();
-        const formData = new FormData(quizForm);
-        const answers = {};
-        for (const [key, value] of formData.entries()) {
-            answers[key.replace('q', '')] = parseInt(value, 10);
-        }
+        
+        // FIX: Collect answers as ARRAY (full length, undefined for blanks)
+        // Backend expects [val0, val1, ..., undefined] for scoring loop
+        const answers = new Array(questions.length).fill(undefined);
+        quizForm.querySelectorAll('.question').forEach((questionDiv, index) => {
+            const selectedRadio = questionDiv.querySelector('input[type="radio"]:checked');
+            if (selectedRadio) {
+                answers[index] = parseInt(selectedRadio.value, 10);
+            }
+            // Blanks stay undefined → scores 0 in backend
+        });
+        console.log('Collected answers array:', answers); // Debug: e.g., [0, undefined, 2, 1, undefined]
 
         try {
-            await fetch('/api/quiz?action=submit', {
+            const response = await fetch('/api/quiz?action=submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ teamName, answers, enterTime, exitTime, round: currentRound }),
+                body: JSON.stringify({ 
+                    teamName, 
+                    answers, // Now array for partial scoring
+                    enterTime, 
+                    exitTime, 
+                    round: currentRound 
+                }),
             });
+            
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+            
+            const result = await response.json();
+            console.log('Submit success:', result.message); // e.g., "Score 3 submitted"
+            
+            // Optional: Show score in alert (partial correct only)
+            const scoreMatch = result.message.match(/Score (\d+) submitted/);
+            const score = scoreMatch ? scoreMatch[1] : 'Calculated';
+            alert(isAutoSubmit ? `Time's up! Auto-submitted with score: ${score}` : `Submitted with score: ${score}`);
+            
         } catch (error) {
             console.error('Error submitting answers:', error);
+            alert('Failed to submit. Please try again or contact admin.');
+            // On error, don't show finished – stay in quiz or retry
+            return;
         } finally {
             quizContainer.classList.add('hidden');
             finishedContainer.classList.remove('hidden');
         }
     }
 
-    // 7. Anti-Cheat: Tab Change Detection
+    // 7. Anti-Cheat: Tab Change Detection (Unchanged)
     async function handleVisibilityChange() {
         if (document.hidden && !hasBeenDisqualified && enterTime) {
             hasBeenDisqualified = true;
