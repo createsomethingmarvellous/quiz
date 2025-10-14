@@ -2,11 +2,11 @@ import { sql } from '@vercel/postgres';
 
 let migrationsRun = false; // Cache: Run ensureTables only once
 
-// Hardcoded questions (replace with your real ones; no JSON/fetch needed)
+// Hardcoded questions (replace with your real ones; includes 'answer' for backend scoring only)
 function getQuestionsForRound(round) {
     if (round < 1 || round > 2) return [];
     
-    // Sample Round 1 (5 questions – replace with actual)
+    // Sample Round 1 (5 questions – replace with actual questions/answers)
     if (round === 1) {
         return [
             { question: "What is 2+2?", options: ["3", "4", "5", "6"], answer: "4" },
@@ -17,7 +17,7 @@ function getQuestionsForRound(round) {
         ];
     }
     
-    // Sample Round 2 (5 questions – replace with actual)
+    // Sample Round 2 (5 questions – replace with actual questions/answers)
     if (round === 2) {
         return [
             { question: "Unity engine type?", options: ["Game", "Web", "AR", "All"], answer: "Game" },
@@ -236,7 +236,7 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- USER: Submit Score (Transaction + Hardcoded Questions + Partial Scoring for Null/Unanswered)
+        // --- USER: Submit Score (Transaction + Hardcoded Questions + Partial String Scoring)
         if (req.method === 'POST' && action === 'submit') {
             const { teamName, answers, enterTime, exitTime, round } = req.body;
             const client = await sql.connect();
@@ -254,25 +254,26 @@ export default async function handler(req, res) {
                 const fallbackExit = exitTime || now;
                 const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
 
-                // Get questions + score partial (null/undefined unanswered = +0; no zero fallback)
+                // Get questions + score partial (string match; unanswered undefined/null = +0)
                 const questions = getQuestionsForRound(currentRound);
                 let score = 0;
                 let answeredCount = 0;
+                let maxQ = 0;
                 if (answers && Array.isArray(answers) && questions.length > 0) {
-                    const maxQ = Math.min(answers.length, questions.length); // Up to submitted answers
+                    maxQ = Math.min(answers.length, questions.length);
                     for (let i = 0; i < maxQ; i++) {
                         const ans = answers[i];
                         if (ans !== null && ans !== undefined) {
-                            answeredCount++; // Count attempted
-                            if (ans === questions[i].answer) {
+                            answeredCount++;
+                            if (ans === questions[i].answer) {  // String match: e.g., "Paris" === "Paris"
                                 score++;
                             }
                         }
-                        // Unanswered (null/undefined): Skip, +0 (as null in array)
+                        // Unanswered: Skip, +0 (sent as undefined/null from client)
                     }
                     console.log(`Partial scoring: ${score}/${questions.length} correct for Team ${teamName} (answered: ${answeredCount}/${maxQ})`);
                 } else {
-                    console.warn(`No answers array for Round ${currentRound} – Score 0 (unanswered all as null)`);
+                    console.warn(`No answers array for Round ${currentRound} – Score 0 (all unanswered as null)`);
                     score = 0;
                 }
 
@@ -283,7 +284,7 @@ export default async function handler(req, res) {
                         score = EXCLUDED.score, enter_time = EXCLUDED.enter_time, exit_time = EXCLUDED.exit_time, time_taken = EXCLUDED.time_taken
                 `;
                 await client.sql`COMMIT;`;
-                console.log(`Insert success: Team ${teamName}, Round ${currentRound}, Score ${score} (unanswered as null)`);
+                console.log(`Insert success: Team ${teamName}, Round ${currentRound}, Score ${score} (sent answers for correction)`);
                 return res.status(200).json({ message: `Score ${score} submitted for Round ${currentRound}. Questions: ${questions.length}` });
             } catch (error) {
                 await client.sql`ROLLBACK;`;
