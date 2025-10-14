@@ -4,10 +4,12 @@ import questionsRound2 from '../questions_round2.json' with { type: 'json' };
 
 
 
+
 // Helper to get questions by round
 function getQuestionsForRound(round) {
     return round === 1 ? questionsRound1 : (round === 2 ? questionsRound2 : []);
 }
+
 
 
 
@@ -78,9 +80,9 @@ const ensureTables = async () => {
 
     // Set safe defaults for time columns (prevents query NULL issues)
     try {
-        await sql`UPDATE Scores SET time_taken = 0 WHERE time_taken IS NULL;`;
-        await sql`UPDATE Scores SET enter_time = submitted_at WHERE enter_time IS NULL;`;
-        await sql`UPDATE Scores SET exit_time = submitted_at WHERE exit_time IS NULL;`;
+        await sql`UPDATE Scores SET time_taken = COALESCE(time_taken, 0);`;
+        await sql`UPDATE Scores SET enter_time = COALESCE(enter_time, submitted_at);`;
+        await sql`UPDATE Scores SET exit_time = COALESCE(exit_time, submitted_at);`;
     } catch (defaultError) {
         console.log('Time defaults already set or no data:', defaultError.message);
     }
@@ -98,7 +100,7 @@ const ensureTables = async () => {
             // Emergency add (since migration might have skipped)
             await sql.unsafe('ALTER TABLE Scores ADD COLUMN round INT NOT NULL DEFAULT 1;');
             // Backfill old rows
-            await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;
+            await sql`UPDATE Scores SET round = COALESCE(round, 1);`;
         } else {
             // If column exists but some rows NULL, backfill
             const { rows: nullCheck } = await sql`SELECT COUNT(*) as null_count FROM Scores WHERE round IS NULL;`;
@@ -107,7 +109,7 @@ const ensureTables = async () => {
                 nullCount = parseInt(nullCheck[0].null_count, 10);
             }
             if (nullCount > 0) {
-                await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;
+                await sql`UPDATE Scores SET round = COALESCE(round, 1) WHERE round IS NULL;`;
                 console.log('Backfilled NULL rounds to 1.');
             }
         }
@@ -115,6 +117,7 @@ const ensureTables = async () => {
         console.error('Error in round column verification/backfill:', error);
     }
 };
+
 
 
 
@@ -266,13 +269,19 @@ export default async function handler(req, res) {
             
             try {
                 const { rows } = await sql`
-                    SELECT team_name, score, enter_time, exit_time, time_taken, submitted_at
+                    SELECT 
+                        team_name, 
+                        score, 
+                        COALESCE(enter_time, submitted_at) as enter_time,
+                        COALESCE(exit_time, submitted_at) as exit_time,
+                        COALESCE(time_taken, 0) as time_taken,
+                        submitted_at
                     FROM Scores
                     WHERE round = ${queryRound}
                     ORDER BY 
                         CASE WHEN score < 0 THEN -999 ELSE score END DESC,
-                        CASE WHEN score < 0 THEN NULL ELSE time_taken END ASC NULLS LAST,
-                        submitted_at ASC
+                        CASE WHEN score < 0 THEN 999999 ELSE COALESCE(time_taken, 999999) END ASC,
+                        COALESCE(submitted_at, '1970-01-01'::timestamp) ASC
                 `;
                 console.log(`Leaderboard fetched for Round ${queryRound}: ${rows.length} rows`);
                 return res.status(200).json({ data: rows, round: queryRound });
