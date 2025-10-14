@@ -1,21 +1,34 @@
 import { sql } from '@vercel/postgres';
-import fs from 'fs/promises'; // For potential JSON read if fetch fails
 
 let migrationsRun = false; // Cache: Run ensureTables only once
 
-// Helper to get questions by round (dynamic fetch from public/ – fallback empty)
-async function getQuestionsForRound(round) {
+// Hardcoded questions (replace with your real ones; no JSON/fetch needed)
+function getQuestionsForRound(round) {
     if (round < 1 || round > 2) return [];
-    try {
-        const response = await fetch(`/questions_round${round}.json`); // /public/ assumed
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const questions = await response.json();
-        console.log(`JSON loaded for Round ${round}: ${questions.length} questions`);
-        return questions;
-    } catch (error) {
-        console.error(`JSON load failed for Round ${round} (scoring fallback to 0):`, error.message);
-        return []; // Safe: score=0
+    
+    // Sample Round 1 (5 questions – replace with actual)
+    if (round === 1) {
+        return [
+            { question: "What is 2+2?", options: ["3", "4", "5", "6"], answer: "4" },
+            { question: "Capital of France?", options: ["Berlin", "Paris", "London", "Madrid"], answer: "Paris" },
+            { question: "Largest planet?", options: ["Earth", "Mars", "Jupiter", "Saturn"], answer: "Jupiter" },
+            { question: "Python founder?", options: ["Linus", "Guido", "Bill", "Steve"], answer: "Guido" },
+            { question: "HTTP status OK?", options: ["200", "404", "500", "301"], answer: "200" }
+        ];
     }
+    
+    // Sample Round 2 (5 questions – replace with actual)
+    if (round === 2) {
+        return [
+            { question: "Unity engine type?", options: ["Game", "Web", "AR", "All"], answer: "Game" },
+            { question: "ARCore by?", options: ["Apple", "Google", "Meta", "Microsoft"], answer: "Google" },
+            { question: "JSON type?", options: ["XML", "Data", "Image", "Video"], answer: "Data" },
+            { question: "Vercel uses?", options: ["PHP", "Node.js", "Java", "C++"], answer: "Node.js" },
+            { question: "Postgres SQL?", options: ["NoSQL", "RDBMS", "Graph", "Key-Value"], answer: "RDBMS" }
+        ];
+    }
+    
+    return []; // Fallback
 }
 
 // Helper to ensure tables (robust, run once)
@@ -27,7 +40,6 @@ const ensureTables = async () => {
     try {
         console.log('Starting migrations...');
 
-        // Step 1: Create tables with full schema
         await sql`CREATE TABLE IF NOT EXISTS Scores (
             id SERIAL PRIMARY KEY,
             round INT NOT NULL DEFAULT 1,
@@ -48,12 +60,10 @@ const ensureTables = async () => {
         );`;
         console.log('QuizStatus table ensured.');
 
-        // Step 2: Default QuizStatus row
         await sql`INSERT INTO QuizStatus (id, started, current_round) VALUES (1, FALSE, 0) 
                   ON CONFLICT (id) DO UPDATE SET started = FALSE, current_round = 0;`;
         console.log('QuizStatus default row ensured.');
 
-        // Step 3: Verify/add round column
         try {
             const { rows: roundCol } = await sql`SELECT column_name FROM information_schema.columns 
                                                 WHERE table_name = 'Scores' AND column_name = 'round';`;
@@ -69,7 +79,6 @@ const ensureTables = async () => {
             console.error('Round column migration failed (non-critical):', roundError.message);
         }
 
-        // Step 4: Add other columns
         const columnsToAdd = [
             { table: 'Scores', column: 'enter_time', type: 'TIMESTAMP' },
             { table: 'Scores', column: 'exit_time', type: 'TIMESTAMP' },
@@ -93,7 +102,6 @@ const ensureTables = async () => {
             }
         }
 
-        // Step 5: Unique constraint
         try {
             await sql`ALTER TABLE Scores ADD CONSTRAINT IF NOT EXISTS unique_round_team UNIQUE (round, team_name);`;
             console.log('Unique constraint ensured.');
@@ -110,7 +118,6 @@ const ensureTables = async () => {
             }
         }
 
-        // Step 6: Defaults and backfill
         try {
             await sql`UPDATE Scores SET 
                       time_taken = COALESCE(time_taken, 0),
@@ -119,7 +126,7 @@ const ensureTables = async () => {
             console.log('Time defaults set.');
 
             const { rows: nullCheck } = await sql`SELECT COUNT(*) as null_count FROM Scores WHERE round IS NULL;`;
-            const nullCount = nullCheck?.[0]?.null_count || 0; // Safer access
+            const nullCount = nullCheck?.[0]?.null_count || 0;
             if (nullCount > 0) {
                 await sql`UPDATE Scores SET round = COALESCE(round, 1) WHERE round IS NULL;`;
                 console.log(`Backfilled ${nullCount} NULL rounds to 1.`);
@@ -130,7 +137,7 @@ const ensureTables = async () => {
             console.log('Defaults/backfill skipped (no data or already set):', defaultError.message);
         }
 
-        migrationsRun = true; // Mark done
+        migrationsRun = true;
         console.log('Migrations complete – DB ready.');
     } catch (error) {
         console.error('Critical migration error (API continues with partial schema):', error);
@@ -138,7 +145,6 @@ const ensureTables = async () => {
 };
 
 export default async function handler(req, res) {
-    // CORS for client safety
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -159,7 +165,6 @@ export default async function handler(req, res) {
                 await client.sql`UPDATE QuizStatus SET started = TRUE, current_round = 1 WHERE id = 1;`;
                 await client.sql`COMMIT;`;
                 console.log('Round 1 started successfully with transaction.');
-                // Verify
                 const { rows: verify } = await sql`SELECT started, current_round FROM QuizStatus WHERE id = 1;`;
                 console.log('Verified QuizStatus after start:', verify[0] || 'No row');
                 return res.status(200).json({ message: 'Round 1 started and scores reset.', currentRound: 1 });
@@ -231,7 +236,7 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- USER: Submit Score (Transaction)
+        // --- USER: Submit Score (Transaction + Hardcoded Questions + Partial Scoring for Null/Unanswered)
         if (req.method === 'POST' && action === 'submit') {
             const { teamName, answers, enterTime, exitTime, round } = req.body;
             const client = await sql.connect();
@@ -249,15 +254,25 @@ export default async function handler(req, res) {
                 const fallbackExit = exitTime || now;
                 const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
 
-                const questions = await getQuestionsForRound(currentRound);
+                // Get questions + score partial (null/undefined unanswered = +0; no zero fallback)
+                const questions = getQuestionsForRound(currentRound);
                 let score = 0;
+                let answeredCount = 0;
                 if (answers && Array.isArray(answers) && questions.length > 0) {
-                    answers.forEach((ans, index) => {
-                        if (ans !== undefined && ans === questions[index]?.answer) score++;
-                    });
-                    console.log(`Partial scoring: ${score}/${questions.length} correct for Team ${teamName}`);
+                    const maxQ = Math.min(answers.length, questions.length); // Up to submitted answers
+                    for (let i = 0; i < maxQ; i++) {
+                        const ans = answers[i];
+                        if (ans !== null && ans !== undefined) {
+                            answeredCount++; // Count attempted
+                            if (ans === questions[i].answer) {
+                                score++;
+                            }
+                        }
+                        // Unanswered (null/undefined): Skip, +0 (as null in array)
+                    }
+                    console.log(`Partial scoring: ${score}/${questions.length} correct for Team ${teamName} (answered: ${answeredCount}/${maxQ})`);
                 } else {
-                    console.warn(`Scoring warning: Invalid/old answers for Round ${currentRound} (type: ${typeof answers}) – Score 0`);
+                    console.warn(`No answers array for Round ${currentRound} – Score 0 (unanswered all as null)`);
                     score = 0;
                 }
 
@@ -268,8 +283,8 @@ export default async function handler(req, res) {
                         score = EXCLUDED.score, enter_time = EXCLUDED.enter_time, exit_time = EXCLUDED.exit_time, time_taken = EXCLUDED.time_taken
                 `;
                 await client.sql`COMMIT;`;
-                console.log(`Insert success: Team ${teamName}, Round ${currentRound}, Score ${score}`);
-                return res.status(200).json({ message: `Score ${score} submitted for Round ${currentRound}. Questions loaded: ${questions.length}` });
+                console.log(`Insert success: Team ${teamName}, Round ${currentRound}, Score ${score} (unanswered as null)`);
+                return res.status(200).json({ message: `Score ${score} submitted for Round ${currentRound}. Questions: ${questions.length}` });
             } catch (error) {
                 await client.sql`ROLLBACK;`;
                 console.error('Submit transaction error:', error);
@@ -279,7 +294,7 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- USER: Disqualify (Transaction)
+        // --- USER: Disqualify (Transaction – Unchanged)
         if (req.method === 'POST' && action === 'disqualify') {
             const { teamName, enterTime, round } = req.body;
             const client = await sql.connect();
@@ -313,7 +328,7 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- PUBLIC/ADMIN: Get Leaderboard (Guarded)
+        // --- PUBLIC/ADMIN: Get Leaderboard (Unchanged)
         if (req.method === 'GET' && action === 'leaderboard') {
             let queryRound;
             if (targetRound === 0) {
