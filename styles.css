@@ -11,7 +11,7 @@ body {
 
 #app {
     width: 90%;
-    max-width: 1000px; /* Slightly wider for new columns */
+    max-width: 1000px;
     background: white;
     padding: 2rem;
     border-radius: 8px;
@@ -21,12 +21,11 @@ body {
 
 .hidden { display: none; }
 
-input[type="text"], button {
+input[type="text"], button, select {
     padding: 12px 15px;
     margin-top: 10px;
     border-radius: 5px;
     border: 1px solid #ccc;
-    width: calc(100% - 32px);
     font-size: 1rem;
 }
 
@@ -43,8 +42,14 @@ button {
 
 button:hover:not(:disabled) { background-color: #0056b3; }
 
+#start-round1-btn { background-color: #28a745; } /* Green for Round 1 */
+#start-round1-btn:hover:not(:disabled) { background-color: #218838; }
+
+#start-round2-btn { background-color: #ffc107; color: #212529; } /* Yellow for Round 2 */
+#start-round2-btn:hover:not(:disabled) { background-color: #e0a800; }
+
 #stop-quiz-btn {
-    background-color: #dc3545; /* Red for stop/warning */
+    background-color: #dc3545; /* Red for stop */
 }
 
 #stop-quiz-btn:hover:not(:disabled) { 
@@ -54,6 +59,12 @@ button:hover:not(:disabled) { background-color: #0056b3; }
 button:disabled {
     background-color: #6c757d;
     cursor: not-allowed;
+}
+
+select {
+    width: auto;
+    padding: 10px;
+    margin: 10px;
 }
 
 #quiz-form { text-align: left; }
@@ -68,7 +79,7 @@ button:disabled {
 
 #leaderboard-table th, #leaderboard-table td {
     border: 1px solid #ddd;
-    padding: 8px; /* Slightly smaller padding for more columns */
+    padding: 8px;
     text-align: left;
 }
 
@@ -77,10 +88,16 @@ button:disabled {
     font-weight: bold;
 }
 
-#leaderboard-table th:nth-child(4), /* Enter Time */
-#leaderboard-table th:nth-child(5), /* Exit Time */
-#leaderboard-table th:nth-child(6) { /* Time Taken */
-    width: 120px; /* Narrower for time columns */
+#leaderboard-table th:nth-child(4), #leaderboard-table th:nth-child(5), #leaderboard-table th:nth-child(6) {
+    width: 120px;
+}
+
+#round-controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
 }
 
 .admin-leaderboard { margin-top: 2rem; }
@@ -98,7 +115,7 @@ button:disabled {
 #quiz-status {
     font-weight: bold;
     margin: 1rem 0;
-    color: #28a745; /* Green for active */
+    color: #28a745;
 }
 
 #quiz-control {
@@ -108,6 +125,12 @@ button:disabled {
     border-radius: 5px;
 }
 
+#round-info {
+    font-weight: bold;
+    color: #007bff;
+    margin-bottom: 1rem;
+}
+
 .disqualified td {
     color: #aaa;
     text-decoration: line-through;
@@ -115,17 +138,4 @@ button:disabled {
 
 a {
     color: #007bff;
-}
-
-select {
-    padding: 8px 12px;
-    margin: 10px;
-    border-radius: 5px;
-    border: 1px solid #ccc;
-    font-size: 1rem;
-}
-
-label {
-    font-weight: bold;
-    margin-right: 5px;
 }
