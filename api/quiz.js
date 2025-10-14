@@ -1,18 +1,26 @@
 import { sql } from '@vercel/postgres';
-import questionsRound1 from '../questions_round1.json' with { type: 'json' };
-import questionsRound2 from '../questions_round2.json' with { type: 'json' };
 
-// Helper to get questions by round
-function getQuestionsForRound(round) {
-    return round === 1 ? questionsRound1 : (round === 2 ? questionsRound2 : []);
+// Helper to get questions by round (dynamic fetch – no module import crash)
+async function getQuestionsForRound(round) {
+    if (round < 1 || round > 2) return [];
+    try {
+        const response = await fetch(`questions_round${round}.json`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const questions = await response.json();
+        console.log(`JSON loaded for Round ${round}: ${questions.length} questions`);
+        return questions;
+    } catch (error) {
+        console.error(`JSON load failed for Round ${round} (scoring fallback to 0):`, error.message);
+        return []; // Safe fallback: score=0
+    }
 }
 
-// Helper to ensure tables exist and have all required columns (FIXED: Full schema in CREATE, variable fixes, per-step try-catch)
+// Helper to ensure tables exist and have all required columns (robust, idempotent)
 const ensureTables = async () => {
     try {
         console.log('Starting migrations...');
 
-        // Step 1: Create tables with FULL schema (includes round DEFAULT 1, times, unique – idempotent)
+        // Step 1: Create tables with full schema (defaults, unique)
         await sql`CREATE TABLE IF NOT EXISTS Scores (
             id SERIAL PRIMARY KEY,
             round INT NOT NULL DEFAULT 1,
@@ -38,14 +46,14 @@ const ensureTables = async () => {
                   ON CONFLICT (id) DO UPDATE SET started = FALSE, current_round = 0;`;
         console.log('QuizStatus default row ensured.');
 
-        // Step 3: Verify/add round column if missing (now redundant but safe)
+        // Step 3: Verify/add round column if missing
         try {
             const { rows: roundCol } = await sql`SELECT column_name FROM information_schema.columns 
                                                 WHERE table_name = 'Scores' AND column_name = 'round';`;
-            if (roundCol.length === 0) {  // FIXED: Use roundCol.length
+            if (roundCol.length === 0) {
                 console.log('Adding missing round column...');
                 await sql`ALTER TABLE Scores ADD COLUMN round INT NOT NULL DEFAULT 1;`;
-                await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;  // Backfill
+                await sql`UPDATE Scores SET round = 1 WHERE round IS NULL;`;
                 console.log('Round column added and backfilled.');
             } else {
                 console.log('Round column already exists.');
@@ -54,7 +62,7 @@ const ensureTables = async () => {
             console.error('Round column migration failed (non-critical):', roundError.message);
         }
 
-        // Step 4: Add other columns if missing (only if not in CREATE – safe)
+        // Step 4: Add other columns if missing
         const columnsToAdd = [
             { table: 'Scores', column: 'enter_time', type: 'TIMESTAMP' },
             { table: 'Scores', column: 'exit_time', type: 'TIMESTAMP' },
@@ -109,7 +117,7 @@ const ensureTables = async () => {
             // Backfill NULL rounds
             const { rows: nullCheck } = await sql`SELECT COUNT(*) as null_count FROM Scores WHERE round IS NULL;`;
             let nullCount = 0;
-            if (nullCheck && nullCheck.length > 0 && nullCheck[0] && nullCheck[0].null_count !== undefined) {  // FIXED: nullCheck access
+            if (nullCheck && nullCheck.length > 0 && nullCheck[0] && nullCheck[0].null_count !== undefined) {
                 nullCount = parseInt(nullCheck[0].null_count, 10);
             }
             if (nullCount > 0) {
@@ -192,7 +200,7 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- USER: Submit Score (FIX: Explicit array check for partial scoring)
+        // --- USER: Submit Score (Dynamic questions + partial array scoring)
         if (req.method === 'POST' && action === 'submit') {
             const { teamName, answers, enterTime, exitTime, round } = req.body;
             try {
@@ -207,15 +215,15 @@ export default async function handler(req, res) {
                 const fallbackExit = exitTime || now;
                 const timeTaken = Math.floor((fallbackExit - fallbackEnter) / 1000);
                 
-                // Calculate score (handles array with undefined blanks; fallback if object/old client)
-                const questions = getQuestionsForRound(currentRound);
+                // Dynamic load questions + score (handles array with undefined blanks)
+                const questions = await getQuestionsForRound(currentRound);
                 let score = 0;
                 if (answers && Array.isArray(answers) && questions.length > 0) {
-                    answers.forEach((ans, index) => {  // FIXED: forEach on array
+                    answers.forEach((ans, index) => {
                         if (ans !== undefined && ans === questions[index]?.answer) {
                             score++;
                         }
-                        // Blanks (undefined) or wrong: +0 (no increment)
+                        // Blanks (undefined) or wrong: +0
                     });
                     console.log(`Partial scoring: ${score}/${questions.length} correct for Team ${teamName}`);
                 } else {
@@ -240,7 +248,7 @@ export default async function handler(req, res) {
             }
         }
         
-        // --- USER: Disqualify (Unchanged, but try-catch)
+        // --- USER: Disqualify (Fixed: Full UPDATE)
         if (req.method === 'POST' && action === 'disqualify') {
             const { teamName, enterTime, round } = req.body;
             try {
@@ -258,6 +266,7 @@ export default async function handler(req, res) {
                     VALUES (${currentRound}, ${teamName}, -1, to_timestamp(${(enterTime || (exitTime - 60000)) / 1000}), NOW(), ${timeTaken})
                     ON CONFLICT (round, team_name) DO UPDATE SET
                         score = -1,
+                        enter_time = EXCLUDED.enter_time,
                         exit_time = NOW(),
                         time_taken = ${timeTaken}
                 `;
