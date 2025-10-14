@@ -11,36 +11,32 @@
         <!-- Team Name Entry -->
         <div id="team-name-container">
             <h1>Enter Your Team Name</h1>
-            <form id="team-name-form">
-                <input type="text" id="team-name-input" placeholder="Team Name" required>
-                <button type="submit">Join Quiz</button>
-            </form>
+            <input type="text" id="team-name-input" placeholder="Team Name" required>
+            <button id="join-btn">Join Quiz</button>
         </div>
 
         <!-- Waiting Room -->
         <div id="waiting-room" class="hidden">
             <h1>Waiting for the quiz to start...</h1>
-            <p>You will be redirected automatically.</p>
+            <p>Do not switch tabs or you will be disqualified.</p>
         </div>
 
         <!-- Quiz Container -->
         <div id="quiz-container" class="hidden">
             <div id="timer">Time Left: 02:00</div>
             <h1>Quiz</h1>
+            <p>Do not switch tabs or you will be disqualified.</p>
             <form id="quiz-form"></form>
             <button id="submit-btn">Submit Answers</button>
         </div>
 
-        <!-- Disqualified Message -->
-        <div id="disqualified-container" class="hidden">
-            <h1>You have been disqualified for changing tabs.</h1>
-            <p>Your score will not be counted.</p>
-        </div>
-
-        <!-- Post-Submission Message -->
+        <!-- Disqualified/Finished View -->
         <div id="finished-container" class="hidden">
-            <h1>Thank you for participating!</h1>
-            <p>Your answers have been submitted. You can view the <a href="/leaderboard.html" target="_blank">leaderboard</a>.</p>
+            <h1>Thank You!</h1>
+            <p>Your score has been submitted. You can view the results on the <a href="/leaderboard.html" target="_blank">leaderboard page</a>.</p>
+        </div>
+         <div id="disqualified-container" class="hidden">
+            <h1>You have been disqualified for switching tabs.</h1>
         </div>
     </div>
     <script src="script.js"></script>

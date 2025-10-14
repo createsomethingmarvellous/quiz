@@ -1,29 +1,34 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Page elements
+    // --- CONFIGURATION ---
+    const QUIZ_DURATION_MINUTES = 2;
+
+    // --- ELEMENTS ---
     const teamNameContainer = document.getElementById('team-name-container');
     const waitingRoom = document.getElementById('waiting-room');
     const quizContainer = document.getElementById('quiz-container');
     const finishedContainer = document.getElementById('finished-container');
     const disqualifiedContainer = document.getElementById('disqualified-container');
-    const timerDisplay = document.getElementById('timer');
-    const teamNameForm = document.getElementById('team-name-form');
+    const timerEl = document.getElementById('timer');
+    const joinBtn = document.getElementById('join-btn');
     const teamNameInput = document.getElementById('team-name-input');
     const quizForm = document.getElementById('quiz-form');
     const submitBtn = document.getElementById('submit-btn');
 
+    // --- STATE ---
     let teamName = '';
     let quizCheckInterval;
-    let quizTimer;
-    let quizActive = false;
-
-    // 1. Handle Team Name Submission
-    teamNameForm.addEventListener('submit', (e) => {
-        e.preventDefault();
+    let timerInterval;
+    let hasBeenDisqualified = false;
+    
+    // 1. Join Quiz
+    joinBtn.addEventListener('click', () => {
         teamName = teamNameInput.value.trim();
         if (teamName) {
             teamNameContainer.classList.add('hidden');
             waitingRoom.classList.remove('hidden');
             startQuizStatusCheck();
+        } else {
+            alert('Please enter a team name.');
         }
     });
 
@@ -31,40 +36,37 @@ document.addEventListener('DOMContentLoaded', () => {
     function startQuizStatusCheck() {
         quizCheckInterval = setInterval(async () => {
             try {
-                const response = await fetch('/api/check-quiz-status');
+                const response = await fetch('/api/quiz?action=status');
                 const data = await response.json();
                 if (data.quizStarted) {
                     clearInterval(quizCheckInterval);
-                    startQuiz(data.duration);
+                    startQuiz();
                 }
             } catch (error) {
                 console.error('Error checking quiz status:', error);
             }
         }, 3000);
     }
-
-    // 3. Start the quiz, timer, and cheat detection
-    async function startQuiz(duration) {
+    
+    // 3. Start the quiz
+    async function startQuiz() {
         waitingRoom.classList.add('hidden');
         quizContainer.classList.remove('hidden');
-        quizActive = true;
         
-        // Start cheat detection
+        // Anti-cheat listener
         document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        // Start timer
-        startTimer(duration);
 
         try {
             const response = await fetch('questions.json');
             const questions = await response.json();
             renderQuestions(questions);
+            startTimer(QUIZ_DURATION_MINUTES * 60);
         } catch (error) {
             console.error('Error fetching questions:', error);
         }
     }
-
-    // 4. Render questions
+    
+    // 4. Render Questions
     function renderQuestions(questions) {
         questions.forEach((q, index) => {
             const questionDiv = document.createElement('div');
@@ -72,39 +74,50 @@ document.addEventListener('DOMContentLoaded', () => {
             questionDiv.innerHTML = `<p>${index + 1}. ${q.question}</p>`;
             const optionsDiv = document.createElement('div');
             optionsDiv.className = 'options';
-            q.options.forEach((option, optionIndex) => {
-                const label = document.createElement('label');
-                label.innerHTML = `<input type="radio" name="question${index}" value="${optionIndex}" required> ${option}`;
-                optionsDiv.appendChild(label);
+            q.options.forEach((option, i) => {
+                optionsDiv.innerHTML += `<label><input type="radio" name="q${index}" value="${i}" required> ${option}</label>`;
             });
             questionDiv.appendChild(optionsDiv);
             quizForm.appendChild(questionDiv);
         });
     }
 
-    // 5. Handle manual submission
-    submitBtn.addEventListener('click', () => {
-        if (quizForm.checkValidity()) {
-            submitAnswers();
-        } else {
-            alert('Please answer all questions.');
-        }
-    });
+    // 5. Timer
+    function startTimer(duration) {
+        let timeLeft = duration;
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            const minutes = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+            const seconds = (timeLeft % 60).toString().padStart(2, '0');
+            timerEl.textContent = `Time Left: ${minutes}:${seconds}`;
 
-    // 6. Submit answers to the backend
-    async function submitAnswers() {
-        if (!quizActive) return; // Prevent multiple submissions
-        quizActive = false;
-        clearInterval(quizTimer); // Stop the timer
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                submitQuiz(true); // Auto-submit
+            }
+        }, 1000);
+    }
+
+    // 6. Handle Submission
+    submitBtn.addEventListener('click', () => submitQuiz(false));
+
+    async function submitQuiz(isAutoSubmit) {
+        if (!isAutoSubmit && !quizForm.checkValidity()) {
+            alert('Please answer all questions.');
+            return;
+        }
+        
+        clearInterval(timerInterval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
 
         const formData = new FormData(quizForm);
         const answers = {};
         for (const [key, value] of formData.entries()) {
-            answers[key.replace('question', '')] = parseInt(value, 10);
+            answers[key.replace('q', '')] = parseInt(value, 10);
         }
 
         try {
-            await fetch('/api/submit', {
+            await fetch('/api/quiz?action=submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ teamName, answers }),
@@ -117,46 +130,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 7. Timer logic
-    function startTimer(duration) {
-        let timeLeft = duration;
-        quizTimer = setInterval(() => {
-            if (!quizActive) {
-                clearInterval(quizTimer);
-                return;
-            }
-            timeLeft--;
-            const minutes = Math.floor(timeLeft / 60).toString().padStart(2, '0');
-            const seconds = (timeLeft % 60).toString().padStart(2, '0');
-            timerDisplay.textContent = `Time Left: ${minutes}:${seconds}`;
-
-            if (timeLeft <= 0) {
-                clearInterval(quizTimer);
-                timerDisplay.textContent = "Time's up!";
-                submitAnswers();
-            }
-        }, 1000);
-    }
-    
-    // 8. Cheat detection logic
+    // 7. Anti-Cheat: Tab Change Detection
     async function handleVisibilityChange() {
-        if (document.hidden && quizActive) {
-            quizActive = false;
-            clearInterval(quizTimer);
+        if (document.hidden && !hasBeenDisqualified) {
+            hasBeenDisqualified = true;
+            clearInterval(timerInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             
             try {
-                await fetch('/api/disqualify', {
+                await fetch('/api/quiz?action=disqualify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ teamName }),
                 });
-            } catch(e) {
-                console.error("Failed to notify disqualification");
+            } catch (error) {
+                console.error('Failed to disqualify:', error);
+            } finally {
+                quizContainer.classList.add('hidden');
+                disqualifiedContainer.classList.remove('hidden');
             }
-
-            quizContainer.classList.add('hidden');
-            disqualifiedContainer.classList.remove('hidden');
         }
     }
 });

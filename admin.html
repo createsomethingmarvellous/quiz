@@ -9,18 +9,10 @@
 <body>
     <div id="app">
         <h1>Admin Dashboard</h1>
+        <button id="start-quiz-btn">Start New Quiz (Resets Leaderboard)</button>
         
-        <div id="controls">
-            <label for="quiz-duration">Quiz Duration (minutes):</label>
-            <input type="number" id="quiz-duration" value="2" min="1">
-            <button id="start-btn">Start Quiz</button>
-            <button id="reset-btn">Reset Quiz & Leaderboard</button>
-        </div>
-
-        <h2 id="status">Status: Quiz has not started.</h2>
-        
-        <div id="leaderboard-container">
-            <h1>Live Leaderboard</h1>
+        <div id="leaderboard-container" class="admin-leaderboard">
+            <h2>Live Leaderboard</h2>
             <table id="leaderboard-table">
                 <thead>
                     <tr>

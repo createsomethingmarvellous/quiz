@@ -1,0 +1,77 @@
+body {
+    font-family: sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: #f0f2f5;
+    color: #333;
+}
+
+#app {
+    width: 90%;
+    max-width: 800px;
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+.hidden { display: none; }
+
+input[type="text"], button {
+    padding: 12px 15px;
+    margin-top: 10px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    width: calc(100% - 32px);
+    font-size: 1rem;
+}
+
+button {
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    width: auto;
+    padding: 12px 25px;
+    transition: background-color 0.2s;
+}
+
+button:hover { background-color: #0056b3; }
+
+#quiz-form { text-align: left; }
+.question { margin-bottom: 1.5rem; }
+.options label { display: block; margin: 0.5rem 0; cursor: pointer; }
+
+#leaderboard-table {
+    width: 100%;
+    margin-top: 1.5rem;
+    border-collapse: collapse;
+}
+
+#leaderboard-table th, #leaderboard-table td {
+    border: 1px solid #ddd;
+    padding: 10px;
+}
+
+#leaderboard-table th { background-color: #f2f2f2; }
+.admin-leaderboard { margin-top: 2rem; }
+
+#timer {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #d9534f;
+    margin-bottom: 1rem;
+}
+
+.disqualified td {
+    color: #aaa;
+    text-decoration: line-through;
+}
+
+a {
+    color: #007bff;
+}
