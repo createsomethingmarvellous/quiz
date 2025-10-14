@@ -1,5 +1,4 @@
 import { sql } from '@vercel/postgres';
-
 export default async function handler(req, res) {
     try {
         const { rows } = await sql`SELECT started, duration FROM QuizStatus WHERE id = 1;`;

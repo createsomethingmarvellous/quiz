@@ -1,11 +1,7 @@
 import { sql } from '@vercel/postgres';
-
 export default async function handler(req, res) {
     try {
-        // Returns all scores, sorted. Disqualified (-1) will be at the bottom.
-        const { rows } = await sql`
-            SELECT team_name, score FROM Scores ORDER BY score DESC, submitted_at ASC;
-        `;
+        const { rows } = await sql`SELECT team_name, score FROM Scores ORDER BY score DESC, submitted_at ASC;`;
         return res.status(200).json(rows);
     } catch (error) {
         if (error.message.includes('does not exist')) {
