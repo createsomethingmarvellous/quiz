@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let hasBeenDisqualified = false;
     let questions = []; // Store loaded questions for rendering
     
-    // 1. Join Quiz
+    // 1. Join Quiz (unchanged)
     joinBtn.addEventListener('click', () => {
         teamName = teamNameInput.value.trim();
         if (teamName) {
@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 2. Check for quiz start
+    // 2. Check for quiz start (unchanged)
     function startQuizStatusCheck() {
         quizCheckInterval = setInterval(async () => {
             try {
@@ -53,7 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 3000);
     }
     
-    // 3. Start the quiz
+    // 3. Start the quiz (Updated: Log round + fallback debug)
     async function startQuiz() {
         waitingRoom.classList.add('hidden');
         quizContainer.classList.remove('hidden');
@@ -62,16 +62,18 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         roundInfoEl.textContent = `Round ${currentRound}`;
+        console.log(`Starting Round ${currentRound} quiz`); // Debug round
         try {
-            // Fetch round-specific questions for rendering (without answers)
+            // Fetch round-specific questions for rendering
             const questionsResponse = await fetch(`/questions_round${currentRound}.json`);
             if (!questionsResponse.ok) throw new Error('Questions not found');
-            questions = await questionsResponse.json(); // Store for rendering
+            questions = await questionsResponse.json();
+            console.log(`Loaded Round ${currentRound} questions from JSON:`, questions); // Debug JSON
             renderQuestions(questions);
             startTimer(QUIZ_DURATION_MINUTES * 60);
         } catch (error) {
-            console.error('Error fetching questions:', error);
-            // Fallback: Hardcode sample questions for rendering (match backend options)
+            console.error('Error fetching questions for Round ${currentRound}:', error);
+            // Fallback: Exact match backend options
             questions = currentRound === 1 ? [
                 { question: "What is 2+2?", options: ["3", "4", "5", "6"] },
                 { question: "Capital of France?", options: ["Berlin", "Paris", "London", "Madrid"] },
@@ -85,15 +87,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 { question: "Vercel uses?", options: ["PHP", "Node.js", "Java", "C++"] },
                 { question: "Postgres SQL?", options: ["NoSQL", "RDBMS", "Graph", "Key-Value"] }
             ];
+            console.log(`Used fallback for Round ${currentRound} questions:`, questions); // Debug fallback
             renderQuestions(questions);
             startTimer(QUIZ_DURATION_MINUTES * 60);
-            console.log('Used fallback questions for rendering');
         }
     }
     
-    // 4. Render Questions (value="${option}" for string sends; no 'required' for partial)
+    // 4. Render Questions (Updated: Log rendered for Round 2)
     function renderQuestions(questions) {
-        quizForm.innerHTML = ''; // Clear form
+        quizForm.innerHTML = '';
         questions.forEach((q, index) => {
             const questionDiv = document.createElement('div');
             questionDiv.className = 'question';
@@ -101,15 +103,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const optionsDiv = document.createElement('div');
             optionsDiv.className = 'options';
             q.options.forEach((option) => {
-                // Sends actual option string (e.g., "Paris") to backend for correction
                 optionsDiv.innerHTML += `<label><input type="radio" name="q${index}" value="${option}"> ${option}</label>`;
             });
             questionDiv.appendChild(optionsDiv);
             quizForm.appendChild(questionDiv);
         });
+        console.log(`Rendered Round ${currentRound} questions with options`); // Debug render
     }
 
-    // 5. Timer (auto-submit partial on end)
+    // 5. Timer (unchanged)
     function startTimer(duration) {
         let timeLeft = duration;
         timerInterval = setInterval(() => {
@@ -120,16 +122,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (timeLeft <= 0) {
                 clearInterval(timerInterval);
-                submitQuiz(true); // Auto-submit sends partial answers for correction
+                submitQuiz(true);
             }
         }, 1000);
     }
 
-    // 6. Handle Submission (sends full answers array for backend correction)
+    // 6. Handle Submission (Updated: Log per-selection for Round 2)
     submitBtn.addEventListener('click', () => submitQuiz(false));
 
     async function submitQuiz(isAutoSubmit) {
-        // Skip validity on auto-submit (allows partial – sends unanswered as undefined for correction)
         if (!isAutoSubmit && !quizForm.checkValidity()) {
             alert('Please answer all questions.');
             return;
@@ -140,16 +141,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const exitTime = Date.now();
         
-        // Collect answers as ARRAY (strings for answered; undefined for blanks – sends to backend for correction)
+        // Collect + log per answer
         const answers = new Array(questions.length).fill(undefined);
         quizForm.querySelectorAll('.question').forEach((questionDiv, index) => {
             const selectedRadio = questionDiv.querySelector('input[type="radio"]:checked');
             if (selectedRadio) {
-                answers[index] = selectedRadio.value; // String: e.g., "4" or "Paris"
+                const selectedValue = selectedRadio.value;
+                answers[index] = selectedValue;
+                console.log(`Selected for Q${index+1} (Round ${currentRound}): '${selectedValue}'`); // Per-selection debug
             }
-            // Unanswered: Stays undefined → backend corrects as +0
         });
-        console.log('Collected answers array sent for correction:', answers); // e.g., ["4", undefined, "Jupiter", ...]
+        console.log(`Collected answers for Round ${currentRound} sent for correction:`, answers);
 
         try {
             const response = await fetch('/api/quiz?action=submit', {
@@ -157,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     teamName, 
-                    answers, // Full array sent for backend partial correction
+                    answers,
                     enterTime, 
                     exitTime, 
                     round: currentRound 
@@ -169,13 +171,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             const result = await response.json();
-            console.log('Backend correction result:', result.message); // e.g., "Score 2 submitted"
+            console.log(`Backend result for Round ${currentRound}:`, result.message);
 
-            // Generic success message (no score shown)
             alert(isAutoSubmit ? "Time's up! Quiz submitted." : "Submitted successfully!");
             
         } catch (error) {
-            console.error('Error submitting answers for correction:', error);
+            console.error(`Error submitting Round ${currentRound}:`, error);
             alert('Failed to submit. Please try again or contact admin.');
             return;
         } finally {
@@ -184,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 7. Anti-Cheat: Tab Change Detection (sends disqualify without answers)
+    // 7. Anti-Cheat (unchanged)
     async function handleVisibilityChange() {
         if (document.hidden && !hasBeenDisqualified && enterTime) {
             hasBeenDisqualified = true;
